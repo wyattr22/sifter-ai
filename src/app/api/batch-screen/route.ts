@@ -55,11 +55,15 @@ export async function POST(request: Request) {
       .filter(r => r.status === 'fulfilled')
       .map(r => (r as PromiseFulfilledResult<typeof settled[0] extends PromiseFulfilledResult<infer T> ? T : never>).value);
 
-    settled
+    const errors = settled
       .filter(r => r.status === 'rejected')
-      .forEach((r, i) => console.error(`Resume ${i} failed:`, (r as PromiseRejectedResult).reason?.message));
+      .map((r, i) => {
+        const msg = (r as PromiseRejectedResult).reason?.message ?? 'unknown';
+        console.error(`Resume ${i} failed: ${msg}`);
+        return msg;
+      });
 
-    return Response.json({ candidates });
+    return Response.json({ candidates, debug_errors: errors.length ? errors : undefined });
   } catch (err) {
     console.error('Batch screen error:', err);
     return Response.json({ error: 'Screening failed.' }, { status: 500 });
