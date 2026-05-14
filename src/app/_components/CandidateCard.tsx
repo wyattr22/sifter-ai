@@ -24,16 +24,17 @@ const LEVEL_COLORS: Record<string, string> = {
 
 const ROUND_ACCENTS = ['from-blue-500', 'from-violet-500', 'from-emerald-500'];
 
-function ScoreBar({ score, color }: { score: number; color: string }) {
+function ScoreBar({ label, score, color, max = 100 }: { label: string; score: number; color: string; max?: number }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
+      <span className="text-[10px] font-semibold text-zinc-400 w-20 shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full ${color}`}
-          style={{ width: `${score}%`, transition: 'width 0.6s ease' }}
+          style={{ width: `${(score / max) * 100}%`, transition: 'width 0.6s ease' }}
         />
       </div>
-      <span className="text-xs font-bold text-zinc-500 w-8 text-right">{score}</span>
+      <span className="text-xs font-bold text-zinc-500 w-7 text-right shrink-0">{score}</span>
     </div>
   );
 }
@@ -42,10 +43,10 @@ function RankBadge({ rank, total }: { rank: number; total: number }) {
   const isTop3 = rank <= 3;
   const isTop10 = rank <= 10;
   return (
-    <div className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+    <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
       isTop3 ? 'bg-amber-100 text-amber-700' : isTop10 ? 'bg-zinc-100 text-zinc-600' : 'bg-zinc-50 text-zinc-400'
     }`}>
-      {isTop3 && <span>{['🥇','🥈','🥉'][rank - 1]}</span>}
+      {isTop3 && <span className="text-[10px]">{['🥇', '🥈', '🥉'][rank - 1]}</span>}
       <span>#{rank} of {total}</span>
     </div>
   );
@@ -117,10 +118,9 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
       onPointerCancel={onPointerUp}
     >
       <div className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden select-none">
-        {/* Colored top strip per round */}
         <div className={`h-1.5 w-full bg-gradient-to-r ${ROUND_ACCENTS[round]} to-transparent`} />
 
-        {/* Stamp overlays */}
+        {/* Stamps */}
         <div className="pointer-events-none absolute inset-0 flex items-start justify-end p-5" style={{ opacity: advOpacity }}>
           <div className="rotate-[-18deg] rounded-xl border-4 border-emerald-500 px-3 py-1">
             <span className="text-2xl font-black tracking-wider text-emerald-500">ADVANCE</span>
@@ -132,69 +132,75 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
           </div>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-3">
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
-                  Blind Candidate
-                </p>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Blind Candidate</p>
                 <RankBadge rank={rank} total={totalCandidates} />
               </div>
-              <p className="text-2xl font-black text-zinc-900">
-                {candidate.yearsExperience} yrs exp
-              </p>
+              <p className="text-2xl font-black text-zinc-900">{candidate.yearsExperience} yrs exp</p>
             </div>
             <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${LEVEL_COLORS[candidate.careerLevel] ?? 'bg-zinc-100 text-zinc-700'}`}>
               {candidate.careerLevel}
             </span>
           </div>
 
-          {/* Round-specific section */}
+          {/* Round 1: Skills */}
           {round === 0 && (
-            <div className="space-y-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-blue-500">Technical Match</p>
-              <ScoreBar score={candidate.technicalScore} color="bg-blue-500" />
-              <div className="flex flex-wrap gap-1.5 mt-1">
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-blue-500">Skills Match</p>
+                <span className="text-blue-600 font-black text-lg">{candidate.skillsScore}</span>
+              </div>
+              <ScoreBar label="Skills" score={candidate.skillsScore} color="bg-blue-500" />
+              <div className="flex flex-wrap gap-1.5">
                 {candidate.requiredSkillsFound.map(s => (
                   <span key={s} className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✓ {s}</span>
                 ))}
                 {candidate.requiredSkillsMissing.map(s => (
                   <span key={s} className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-600">✗ {s}</span>
                 ))}
-                {candidate.bonusSkills.slice(0, 3).map(s => (
+                {candidate.bonusSkills.slice(0, 2).map(s => (
                   <span key={s} className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">{s}</span>
                 ))}
               </div>
             </div>
           )}
 
+          {/* Round 2: Experience, Scale, Achievement */}
           {round === 1 && (
-            <div className="space-y-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-500">Experience Level</p>
-              <ScoreBar score={candidate.experienceScore} color="bg-violet-500" />
-              <div className="rounded-2xl bg-violet-50 p-4">
-                <p className="text-sm font-medium text-violet-900 leading-relaxed">
-                  "{candidate.topAchievement}"
+            <div className="space-y-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-500">Experience & Impact</p>
+              <div className="space-y-1.5">
+                <ScoreBar label="Experience" score={candidate.experienceScore} color="bg-violet-500" />
+                <ScoreBar label="Scale" score={candidate.scaleScore} color="bg-purple-400" />
+                <ScoreBar label="Achievements" score={candidate.achievementScore} color="bg-fuchsia-500" />
+              </div>
+              <div className="rounded-2xl bg-violet-50 px-4 py-3">
+                <p className="text-xs font-medium text-violet-900 leading-relaxed">
+                  &ldquo;{candidate.topAchievement}&rdquo;
                 </p>
               </div>
             </div>
           )}
 
+          {/* Round 3: All 5 dimensions */}
           {round === 2 && (
-            <div className="space-y-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Overall Fit</p>
-              <ScoreBar score={candidate.fitScore} color="bg-emerald-500" />
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl bg-blue-50 p-2.5">
-                  <p className="text-[10px] font-semibold text-blue-500 uppercase">Technical</p>
-                  <p className="text-lg font-black text-blue-700">{candidate.technicalScore}</p>
-                </div>
-                <div className="rounded-xl bg-violet-50 p-2.5">
-                  <p className="text-[10px] font-semibold text-violet-500 uppercase">Experience</p>
-                  <p className="text-lg font-black text-violet-700">{candidate.experienceScore}</p>
-                </div>
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Overall Fit</p>
+                <span className={`font-black text-2xl ${candidate.fitScore >= 75 ? 'text-emerald-600' : candidate.fitScore >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
+                  {candidate.fitScore}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                <ScoreBar label="Skills" score={candidate.skillsScore} color="bg-blue-500" />
+                <ScoreBar label="Experience" score={candidate.experienceScore} color="bg-violet-500" />
+                <ScoreBar label="Scale" score={candidate.scaleScore} color="bg-purple-400" />
+                <ScoreBar label="Achievements" score={candidate.achievementScore} color="bg-fuchsia-500" />
+                <ScoreBar label="Domain" score={candidate.domainScore} color="bg-emerald-500" />
               </div>
             </div>
           )}
@@ -202,20 +208,20 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
           {/* Score breakdown — always visible */}
           {candidate.scoreBreakdown && (
             <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-0.5">Why this score</p>
-              <p className="text-xs text-zinc-600">{candidate.scoreBreakdown}</p>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 mb-0.5">Why this score</p>
+              <p className="text-[11px] text-zinc-600 font-mono">{candidate.scoreBreakdown}</p>
             </div>
           )}
 
           {/* Pitch + concern */}
-          <div className="border-t border-zinc-100 pt-3 space-y-1.5">
+          <div className="border-t border-zinc-100 pt-2.5 space-y-1.5">
             <div className="flex items-start gap-2 text-sm">
               <span className="mt-0.5 text-emerald-500 shrink-0">✓</span>
-              <span className="text-zinc-700 leading-snug">{candidate.advancePitch}</span>
+              <span className="text-zinc-700 leading-snug text-xs">{candidate.advancePitch}</span>
             </div>
             <div className="flex items-start gap-2 text-sm">
               <span className="mt-0.5 text-amber-500 shrink-0">⚠</span>
-              <span className="text-zinc-600 leading-snug">{candidate.concernFlag}</span>
+              <span className="text-zinc-600 leading-snug text-xs">{candidate.concernFlag}</span>
             </div>
           </div>
         </div>

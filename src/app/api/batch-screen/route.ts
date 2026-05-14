@@ -6,52 +6,80 @@ export const runtime = 'nodejs';
 
 const SYSTEM_PROMPT = `You are an expert recruiter AI screening candidates blindly to remove bias.
 
-ANONYMIZATION (strictly required):
+ANONYMIZATION (required):
 - Replace all person names with "Candidate"
-- Replace ALL company names with [Company A], [Company B], etc.
-- Replace ALL university/school names with [University]
-- Keep all skills, technologies, years of experience, and quantified achievements
+- Replace company names with [Company A], [Company B], etc.
+- Replace university/school names with [University]
+- Keep all skills, technologies, years of experience, and quantified numbers
 
-SCORING FORMULA — follow this exactly for consistent, explainable scores:
+FIVE SCORING DIMENSIONS — score each 0-100:
 
-technicalScore (0–100):
-- Divide 80 points equally among the required skills listed in the job description.
-- Award each point block only when the skill is CLEARLY present in the resume.
-- Award up to 20 additional points for bonus/adjacent skills that add value.
-- Example: 5 required skills = 16pts each. 3 found = 48pts + 8pts bonus = 56.
+skillsScore: Required tech/tools coverage
+- Divide 100 by the number of required skills. Award each share when that skill is CLEARLY present.
+- Add up to 15 bonus points for closely adjacent skills.
+- Example: 4 required skills = 25pts each. 3 found + 1 adjacent = 75 + 10 = 85.
 
-experienceScore (0–100):
-- Years of experience vs required years: exact match or above = 70pts; within 1yr under = 55pts; 2yrs under = 40pts; 3+yrs under = 20pts.
-- Career level match: exact level = +20pts; adjacent level (e.g. senior for lead role) = +10pts; off by 2+ levels = 0pts.
-- Direct domain/industry experience: +10pts.
+experienceScore: Years of experience vs required + seniority level match
+- Years match: within target range = 60pts; 1yr short = 45pts; 2yr short = 30pts; 3+yr short = 15pts; over-experienced = 55pts (consider overqualification risk).
+- Level match: exact = +30pts; adjacent = +20pts; off by 2+ = +5pts.
+- Junior applying to senior = max 30. Senior applying to junior = 55.
 
-fitScore (0–100):
-- fitScore = round(technicalScore × 0.50 + experienceScore × 0.35 + impactScore × 0.15)
-- impactScore (0–100): quality of achievements — strong quantified metrics = 80–100, some metrics = 50–70, vague = 20–40.
+scaleScore: Scope and scale of past work
+- 0-30: Solo projects / small startups (<10 people, toy traffic)
+- 31-55: Small teams (10-50), moderate scale
+- 56-75: Mid-size orgs (50-500), real production systems
+- 76-90: Large orgs or scale (500+ people, >100k users/req/day, significant revenue impact)
+- 91-100: Elite scale (millions of users, multi-billion $ impact, FAANG/equivalent)
 
-scoreBreakdown: ONE concise line explaining the fit score. Examples:
-"4/5 skills · 6y exp (req 5+) · strong scale metrics"
-"2/4 skills missing Python & AWS · 3y under required · generic achievements"
-"All skills present · over-experienced by 3y · impressive at [Company A]"
+achievementScore: Quality of quantified achievements
+- 0-20: No metrics, vague claims ("worked on projects")
+- 21-50: Some numbers but minor impact ("improved speed by 10%")
+- 51-75: Clear wins with real metrics ("reduced latency 40%, saved $200k")
+- 76-90: Strong measurable outcomes that changed the business
+- 91-100: Exceptional, verifiable impact with specific numbers
 
-Respond ONLY with a valid JSON object — no markdown, no code fences, no explanation:
+domainScore: Industry and domain alignment
+- 100: Exact industry match
+- 75: Adjacent industry with highly transferable experience
+- 50: Different industry, transferable skills
+- 25: Unrelated industry, steep learning curve
+- 0: No domain relevance
+
+fitScore: Weighted composite
+fitScore = round(skillsScore×0.30 + experienceScore×0.20 + scaleScore×0.20 + achievementScore×0.20 + domainScore×0.10)
+
+scoreBreakdown: One concise line, e.g.:
+"Skills 85 · Exp 70 · Scale 60 · Impact 80 · Domain 100 → fit 79"
+
+Respond ONLY with a valid JSON object — no markdown, no code fences:
 {
-  "yearsExperience": <number, total relevant work experience>,
-  "careerLevel": "junior" | "mid" | "senior" | "lead" | "principal",
-  "requiredSkillsFound": ["skill1", "skill2"],
-  "requiredSkillsMissing": ["skill3"],
-  "bonusSkills": ["extra relevant skill"],
-  "topAchievement": "anonymized single best achievement with a metric",
-  "technicalScore": <0-100, computed per formula above>,
-  "experienceScore": <0-100, computed per formula above>,
-  "fitScore": <0-100, computed per formula above>,
-  "scoreBreakdown": "one-line explanation of the fit score",
+  "yearsExperience": <number>,
+  "careerLevel": "junior"|"mid"|"senior"|"lead"|"principal",
+  "requiredSkillsFound": ["skill1"],
+  "requiredSkillsMissing": ["skill2"],
+  "bonusSkills": ["bonus skill"],
+  "topAchievement": "anonymized best achievement with metric",
+  "skillsScore": <0-100>,
+  "experienceScore": <0-100>,
+  "scaleScore": <0-100>,
+  "achievementScore": <0-100>,
+  "domainScore": <0-100>,
+  "fitScore": <0-100>,
+  "scoreBreakdown": "Skills N · Exp N · Scale N · Impact N · Domain N → fit N",
   "advancePitch": "under 12 words: strongest reason to advance",
   "concernFlag": "under 12 words: biggest risk or gap"
 }`;
 
 function buildPrompt(jobDescription: string, resume: string) {
   return `JOB DESCRIPTION:\n${jobDescription}\n\nRESUME:\n${resume}`;
+}
+
+function stripFences(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
 }
 
 export async function POST(request: Request) {
@@ -65,25 +93,30 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Job description and at least one resume are required.' }, { status: 400 });
     }
 
-    const results = await Promise.all(
-      resumes.map(async (resume, i) => {
+    // Process sequentially to avoid Groq rate limits, collect partial results
+    const candidates = [];
+    for (let i = 0; i < resumes.length; i++) {
+      try {
         const result = await generateText({
           model: groq('llama-3.3-70b-versatile'),
           system: SYSTEM_PROMPT,
-          prompt: buildPrompt(jobDescription, resume),
-          maxOutputTokens: 700,
+          prompt: buildPrompt(jobDescription, resumes[i]),
+          maxOutputTokens: 900,
         });
 
-        const raw = result.text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+        const raw = stripFences(result.text);
         const parsed = CandidateProfileSchema.parse({
           ...JSON.parse(raw),
           id: String(i + 1),
         });
-        return parsed;
-      })
-    );
+        candidates.push(parsed);
+      } catch (err) {
+        // Log but skip — don't fail entire batch for one bad parse
+        console.error(`Resume ${i} failed:`, err instanceof Error ? err.message : err);
+      }
+    }
 
-    return Response.json({ candidates: results });
+    return Response.json({ candidates });
   } catch (err) {
     console.error('Batch screen error:', err);
     return Response.json({ error: 'Screening failed. Check your GROQ_API_KEY.' }, { status: 500 });

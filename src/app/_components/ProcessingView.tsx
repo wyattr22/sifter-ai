@@ -6,16 +6,37 @@ interface Props {
   processed: number;
   total: number;
   candidates: CandidateProfile[];
+  error: string | null;
+  onReset: () => void;
 }
 
 const LEVEL_EMOJI: Record<string, string> = {
   junior: '🌱', mid: '⚡', senior: '🔥', lead: '👑', principal: '🚀',
 };
 
-export function ProcessingView({ processed, total, candidates }: Props) {
+export function ProcessingView({ processed, total, candidates, error, onReset }: Props) {
   const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
   const isDone = processed >= total && total > 0;
-  const recent = candidates.slice(-6).reverse();
+  const successRate = processed > 0 ? Math.round((candidates.length / processed) * 100) : 0;
+  const recent = [...candidates].reverse().slice(0, 5);
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-rose-950 to-zinc-950 flex flex-col items-center justify-center px-6">
+        <div className="text-center max-w-md">
+          <div className="text-6xl mb-4">⚠️</div>
+          <p className="text-white text-xl font-bold mb-2">Processing failed</p>
+          <p className="text-zinc-400 text-sm mb-6">{error}</p>
+          <button
+            onClick={onReset}
+            className="rounded-2xl bg-white/10 border border-white/20 px-8 py-3 text-sm font-bold text-white hover:bg-white/20 transition"
+          >
+            ← Back to setup
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-indigo-950 to-zinc-950 flex flex-col px-6 py-12">
@@ -34,9 +55,16 @@ export function ProcessingView({ processed, total, candidates }: Props) {
         </div>
         <p className="text-zinc-400 mt-2 text-lg">
           {isDone
-            ? `All ${total} candidates screened — ranked by fit score`
+            ? `${candidates.length} candidates screened — sorted by fit score`
             : 'Anonymizing and analyzing candidates...'}
         </p>
+
+        {/* Success rate indicator */}
+        {processed > 0 && candidates.length < processed && (
+          <p className="text-zinc-600 text-sm mt-1">
+            {candidates.length} of {processed} screened successfully ({successRate}%)
+          </p>
+        )}
       </div>
 
       {/* Progress bar */}
@@ -52,7 +80,7 @@ export function ProcessingView({ processed, total, candidates }: Props) {
           />
         </div>
         <div className="flex justify-between text-xs text-zinc-600 mt-2">
-          <span>Blind screening active</span>
+          <span>Blind screening active · 5 criteria evaluated per candidate</span>
           <span>{pct}%</span>
         </div>
       </div>
@@ -75,7 +103,7 @@ export function ProcessingView({ processed, total, candidates }: Props) {
               <div
                 key={c.id}
                 className="flex items-center gap-3 rounded-xl bg-white/4 border border-white/8 px-4 py-3"
-                style={{ opacity: isDone ? 1 : 1 - i * 0.12 }}
+                style={{ opacity: isDone ? 1 : 1 - i * 0.15 }}
               >
                 <span className="text-xl">{LEVEL_EMOJI[c.careerLevel] ?? '👤'}</span>
                 <div className="flex-1 min-w-0">
@@ -108,7 +136,7 @@ export function ProcessingView({ processed, total, candidates }: Props) {
           </p>
         ) : (
           <p className="text-zinc-600 text-sm">
-            Screening all {total} candidates before swiping begins...
+            Evaluating: skills · experience · scale · achievements · domain fit
           </p>
         )}
       </div>

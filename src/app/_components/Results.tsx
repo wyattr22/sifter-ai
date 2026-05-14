@@ -120,7 +120,7 @@ export function Results({ finalists, history, totalCandidates, onReset }: Props)
                 </div>
                 <p className="text-zinc-300 text-sm mb-2 italic">"{c.topAchievement}"</p>
                 <div className="flex gap-3 text-xs">
-                  <span className="text-blue-400">Tech {c.technicalScore}</span>
+                  <span className="text-blue-400">Skills {c.skillsScore}</span>
                   <span className="text-violet-400">Exp {c.experienceScore}</span>
                   <span className="text-emerald-400 font-bold">Fit {c.fitScore}</span>
                 </div>

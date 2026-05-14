@@ -10,7 +10,7 @@ import type { RoundHistory } from './SwipeView';
 
 type View = 'setup' | 'processing' | 'swiping' | 'results';
 
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 3; // Reduced to avoid Groq rate limits
 
 interface SetupPayload {
   jobDescription: string;
@@ -22,6 +22,7 @@ export function AppClient() {
   const [candidates, setCandidates] = useState<CandidateProfile[]>([]);
   const [processed, setProcessed] = useState(0);
   const [total, setTotal] = useState(0);
+  const [processingError, setProcessingError] = useState<string | null>(null);
   const [finalists, setFinalists] = useState<CandidateProfile[]>([]);
   const [history, setHistory] = useState<RoundHistory[]>([]);
 
@@ -30,6 +31,7 @@ export function AppClient() {
     setTotal(resumes.length);
     setProcessed(0);
     setCandidates([]);
+    setProcessingError(null);
 
     const allCandidates: CandidateProfile[] = [];
 
@@ -43,7 +45,14 @@ export function AppClient() {
           body: JSON.stringify({ jobDescription, resumes: batch }),
         });
 
-        if (!res.ok) continue;
+        // Always advance the progress counter regardless of success/failure
+        setProcessed(prev => prev + batch.length);
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error('Batch failed:', err);
+          continue;
+        }
 
         const data = await res.json();
         const batchCandidates: CandidateProfile[] = (data.candidates ?? []).map(
@@ -52,13 +61,18 @@ export function AppClient() {
 
         allCandidates.push(...batchCandidates);
         setCandidates(prev => [...prev, ...batchCandidates]);
-        setProcessed(prev => prev + batch.length);
-      } catch {
+      } catch (err) {
+        console.error('Batch fetch error:', err);
         setProcessed(prev => prev + batch.length);
       }
     }
 
-    // All done — sort by fit score (highest first) then start swiping
+    if (allCandidates.length === 0) {
+      setProcessingError('All candidates failed to process. Check your internet connection or try fewer resumes.');
+      return;
+    }
+
+    // Sort by fit score (highest first) then start swiping
     const sorted = [...allCandidates].sort((a, b) => b.fitScore - a.fitScore);
     setCandidates(sorted);
     setView('swiping');
@@ -76,6 +90,7 @@ export function AppClient() {
     setHistory([]);
     setProcessed(0);
     setTotal(0);
+    setProcessingError(null);
     setView('setup');
   };
 
@@ -86,6 +101,8 @@ export function AppClient() {
       processed={processed}
       total={total}
       candidates={candidates}
+      error={processingError}
+      onReset={handleReset}
     />
   );
 
