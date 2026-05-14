@@ -5,8 +5,10 @@ import type { CandidateProfile } from '@/lib/candidate-schema';
 
 interface Props {
   candidate: CandidateProfile;
-  position: number; // 0=top, 1=second, 2=third
+  position: number;
   round: number;
+  rank: number;
+  totalCandidates: number;
   onSwipe: (direction: 'left' | 'right') => void;
 }
 
@@ -36,7 +38,20 @@ function ScoreBar({ score, color }: { score: number; color: string }) {
   );
 }
 
-export function CandidateCard({ candidate, position, round, onSwipe }: Props) {
+function RankBadge({ rank, total }: { rank: number; total: number }) {
+  const isTop3 = rank <= 3;
+  const isTop10 = rank <= 10;
+  return (
+    <div className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+      isTop3 ? 'bg-amber-100 text-amber-700' : isTop10 ? 'bg-zinc-100 text-zinc-600' : 'bg-zinc-50 text-zinc-400'
+    }`}>
+      {isTop3 && <span>{['🥇','🥈','🥉'][rank - 1]}</span>}
+      <span>#{rank} of {total}</span>
+    </div>
+  );
+}
+
+export function CandidateCard({ candidate, position, round, rank, totalCandidates, onSwipe }: Props) {
   const [dragX, setDragX] = useState(0);
   const [flying, setFlying] = useState<'left' | 'right' | null>(null);
   const dragging = useRef(false);
@@ -121,10 +136,13 @@ export function CandidateCard({ candidate, position, round, onSwipe }: Props) {
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
-                Blind Candidate #{candidate.id}
-              </p>
-              <p className="text-2xl font-black text-zinc-900 mt-0.5">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+                  Blind Candidate
+                </p>
+                <RankBadge rank={rank} total={totalCandidates} />
+              </div>
+              <p className="text-2xl font-black text-zinc-900">
                 {candidate.yearsExperience} yrs exp
               </p>
             </div>
@@ -178,6 +196,14 @@ export function CandidateCard({ candidate, position, round, onSwipe }: Props) {
                   <p className="text-lg font-black text-violet-700">{candidate.experienceScore}</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Score breakdown — always visible */}
+          {candidate.scoreBreakdown && (
+            <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-0.5">Why this score</p>
+              <p className="text-xs text-zinc-600">{candidate.scoreBreakdown}</p>
             </div>
           )}
 

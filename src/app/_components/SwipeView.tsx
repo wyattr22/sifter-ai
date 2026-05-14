@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useMemo } from 'react';
 import type { CandidateProfile } from '@/lib/candidate-schema';
 import { ROUNDS } from '@/lib/candidate-schema';
 import { CandidateCard } from './CandidateCard';
@@ -28,6 +28,12 @@ export function SwipeView({ allCandidates, onComplete }: Props) {
   const [history, setHistory] = useState<RoundHistory[]>([]);
   const [topIndex, setTopIndex] = useState(0);
   const [swipingId, setSwipingId] = useState<string | null>(null);
+
+  // Permanent rank map from initial sorted order (best fit = rank 1)
+  const rankMap = useMemo(
+    () => Object.fromEntries(allCandidates.map((c, i) => [c.id, i + 1])),
+    [allCandidates]
+  );
 
   const currentCandidate = queue[topIndex];
   const remaining = queue.length - topIndex;
@@ -113,6 +119,9 @@ export function SwipeView({ allCandidates, onComplete }: Props) {
         {/* Round info */}
         <div className="text-center mb-3">
           <p className="text-white/60 text-sm font-medium">{roundInfo.focus}</p>
+          {round === 0 && (
+            <p className="text-white/40 text-xs mt-1">Sorted by fit score — best candidates first</p>
+          )}
         </div>
 
         {/* Progress */}
@@ -132,13 +141,15 @@ export function SwipeView({ allCandidates, onComplete }: Props) {
 
       {/* Card stack */}
       <div className="flex-1 flex flex-col items-center justify-center px-6">
-        <div className="relative w-full max-w-sm" style={{ height: 420 }}>
+        <div className="relative w-full max-w-sm" style={{ height: 460 }}>
           {visibleCards.map((candidate, idx) => (
             <CandidateCard
               key={`${round}-${candidate.id}`}
               candidate={candidate}
               position={idx}
               round={round}
+              rank={rankMap[candidate.id] ?? 0}
+              totalCandidates={allCandidates.length}
               onSwipe={(dir) => handleSwipe(candidate.id, dir)}
             />
           ))}
@@ -148,7 +159,6 @@ export function SwipeView({ allCandidates, onComplete }: Props) {
       {/* Bottom actions */}
       <div className="px-6 pb-10">
         <div className="flex items-center justify-center gap-8 mb-4">
-          {/* Reject button */}
           <button
             onClick={() => currentCandidate && handleSwipe(currentCandidate.id, 'left')}
             className="h-16 w-16 rounded-full bg-white/10 border-2 border-rose-400 text-rose-400 text-2xl font-bold hover:bg-rose-500 hover:border-rose-500 hover:text-white transition-all hover:scale-110 active:scale-95 shadow-lg"
@@ -162,7 +172,6 @@ export function SwipeView({ allCandidates, onComplete }: Props) {
             </p>
           </div>
 
-          {/* Advance button */}
           <button
             onClick={() => currentCandidate && handleSwipe(currentCandidate.id, 'right')}
             className="h-16 w-16 rounded-full bg-white/10 border-2 border-emerald-400 text-emerald-400 text-2xl font-bold hover:bg-emerald-500 hover:border-emerald-500 hover:text-white transition-all hover:scale-110 active:scale-95 shadow-lg"

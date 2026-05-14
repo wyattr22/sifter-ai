@@ -1,7 +1,6 @@
 import { generateText } from 'ai';
 import { groq } from '@ai-sdk/groq';
 import { CandidateProfileSchema } from '@/lib/candidate-schema';
-import { z } from 'zod';
 
 export const runtime = 'nodejs';
 
@@ -13,7 +12,28 @@ ANONYMIZATION (strictly required):
 - Replace ALL university/school names with [University]
 - Keep all skills, technologies, years of experience, and quantified achievements
 
-For the given resume and job description, extract a structured profile.
+SCORING FORMULA — follow this exactly for consistent, explainable scores:
+
+technicalScore (0–100):
+- Divide 80 points equally among the required skills listed in the job description.
+- Award each point block only when the skill is CLEARLY present in the resume.
+- Award up to 20 additional points for bonus/adjacent skills that add value.
+- Example: 5 required skills = 16pts each. 3 found = 48pts + 8pts bonus = 56.
+
+experienceScore (0–100):
+- Years of experience vs required years: exact match or above = 70pts; within 1yr under = 55pts; 2yrs under = 40pts; 3+yrs under = 20pts.
+- Career level match: exact level = +20pts; adjacent level (e.g. senior for lead role) = +10pts; off by 2+ levels = 0pts.
+- Direct domain/industry experience: +10pts.
+
+fitScore (0–100):
+- fitScore = round(technicalScore × 0.50 + experienceScore × 0.35 + impactScore × 0.15)
+- impactScore (0–100): quality of achievements — strong quantified metrics = 80–100, some metrics = 50–70, vague = 20–40.
+
+scoreBreakdown: ONE concise line explaining the fit score. Examples:
+"4/5 skills · 6y exp (req 5+) · strong scale metrics"
+"2/4 skills missing Python & AWS · 3y under required · generic achievements"
+"All skills present · over-experienced by 3y · impressive at [Company A]"
+
 Respond ONLY with a valid JSON object — no markdown, no code fences, no explanation:
 {
   "yearsExperience": <number, total relevant work experience>,
@@ -22,9 +42,10 @@ Respond ONLY with a valid JSON object — no markdown, no code fences, no explan
   "requiredSkillsMissing": ["skill3"],
   "bonusSkills": ["extra relevant skill"],
   "topAchievement": "anonymized single best achievement with a metric",
-  "technicalScore": <0-100, how well required technical skills are met>,
-  "experienceScore": <0-100, how well experience level and years match>,
-  "fitScore": <0-100, overall holistic fit>,
+  "technicalScore": <0-100, computed per formula above>,
+  "experienceScore": <0-100, computed per formula above>,
+  "fitScore": <0-100, computed per formula above>,
+  "scoreBreakdown": "one-line explanation of the fit score",
   "advancePitch": "under 12 words: strongest reason to advance",
   "concernFlag": "under 12 words: biggest risk or gap"
 }`;
@@ -50,7 +71,7 @@ export async function POST(request: Request) {
           model: groq('llama-3.3-70b-versatile'),
           system: SYSTEM_PROMPT,
           prompt: buildPrompt(jobDescription, resume),
-          maxOutputTokens: 600,
+          maxOutputTokens: 700,
         });
 
         const raw = result.text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');

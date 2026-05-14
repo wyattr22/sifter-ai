@@ -11,6 +11,7 @@ export const CandidateProfileSchema = z.object({
   technicalScore: z.number().int().min(0).max(100),
   experienceScore: z.number().int().min(0).max(100),
   fitScore: z.number().int().min(0).max(100),
+  scoreBreakdown: z.string().default(''),
   advancePitch: z.string(),
   concernFlag: z.string(),
 });

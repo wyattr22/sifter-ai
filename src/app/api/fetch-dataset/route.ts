@@ -1,69 +1,109 @@
 export const runtime = 'nodejs';
 
 const HF_BASE = 'https://datasets-server.huggingface.co';
+const DATASET = 'AzharAli05/Resume-Screening-Dataset';
 
 interface HFRow {
   row_idx: number;
   row: Record<string, string>;
 }
 
+function detectCol(features: { name: string }[], patterns: string[]): string | null {
+  for (const p of patterns) {
+    const f = features.find(f => f.name.toLowerCase().replace(/[^a-z_]/g, '').includes(p));
+    if (f) return f.name;
+  }
+  return null;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const count = Math.min(parseInt(searchParams.get('count') ?? '50'), 100);
-  const dataset = searchParams.get('dataset') ?? 'AzharAli05/Resume-Screening-Dataset';
   const role = searchParams.get('role') ?? null;
 
   try {
-    // Get total rows
-    const infoRes = await fetch(
-      `${HF_BASE}/rows?dataset=${encodeURIComponent(dataset)}&config=default&split=train&offset=0&length=1`,
+    // Get metadata (total + column schema)
+    const metaRes = await fetch(
+      `${HF_BASE}/rows?dataset=${encodeURIComponent(DATASET)}&config=default&split=train&offset=0&length=1`,
       { headers: { 'User-Agent': 'Sift-App/1.0' } }
     );
-    const info = await infoRes.json();
-    const total: number = info.num_rows_total ?? 10174;
+    const meta = await metaRes.json();
+    const total: number = meta.num_rows_total ?? 10174;
+    const features: { name: string }[] = meta.features ?? [];
 
-    // Fetch from a random starting point for variety
-    const maxOffset = Math.max(0, total - count);
-    const offset = Math.floor(Math.random() * maxOffset);
+    const resumeCol = detectCol(features, ['resume', 'cv', 'text', 'content']) ?? 'Resume';
+    const jdCol = detectCol(features, ['job_description', 'jd', 'description']);
+    const roleCol = detectCol(features, ['role', 'category', 'job_title', 'position']);
 
-    const rowsRes = await fetch(
-      `${HF_BASE}/rows?dataset=${encodeURIComponent(dataset)}&config=default&split=train&offset=${offset}&length=${count}`,
-      { headers: { 'User-Agent': 'Sift-App/1.0' } }
-    );
-    const rowsData = await rowsRes.json();
-    const rows: HFRow[] = rowsData.rows ?? [];
+    let rows: HFRow[] = [];
+    let roleTotal: number | null = null;
 
-    // Detect which column has the resume text
-    const features: { name: string }[] = rowsData.features ?? [];
-    const resumeCol = features.find(f =>
-      ['resume', 'resume_str', 'cv', 'text', 'content'].some(p => f.name.toLowerCase().includes(p))
-    )?.name ?? 'Resume';
-    const jdCol = features.find(f =>
-      ['job_description', 'job description', 'jd', 'description'].some(p => f.name.toLowerCase().includes(p))
-    )?.name ?? null;
-    const roleCol = features.find(f =>
-      ['role', 'category', 'job_title', 'position'].some(p => f.name.toLowerCase().includes(p))
-    )?.name ?? null;
-
-    // Filter by role if requested
-    let filtered = rows;
     if (role && roleCol) {
-      filtered = rows.filter(r => r.row[roleCol]?.toLowerCase().includes(role.toLowerCase()));
+      // Strategy 1: HuggingFace /filter endpoint (parquet SQL)
+      let filterSucceeded = false;
+      try {
+        const where = encodeURIComponent(`${roleCol} LIKE '%${role}%'`);
+        const filterRes = await fetch(
+          `${HF_BASE}/filter?dataset=${encodeURIComponent(DATASET)}&config=default&split=train&where=${where}&offset=0&length=${count}`,
+          { headers: { 'User-Agent': 'Sift-App/1.0' } }
+        );
+        if (filterRes.ok) {
+          const filterData = await filterRes.json();
+          if (filterData.rows?.length > 0) {
+            rows = filterData.rows;
+            roleTotal = filterData.num_rows_total ?? null;
+            filterSucceeded = true;
+          }
+        }
+      } catch { /* filter not supported — fall through */ }
+
+      // Strategy 2: Scan 4 random pages of 100 rows, filter locally
+      if (!filterSucceeded) {
+        const maxOffset = Math.max(0, total - 100);
+        const offsets = Array.from({ length: 4 }, () => Math.floor(Math.random() * maxOffset));
+        const batches = await Promise.all(
+          offsets.map(offset =>
+            fetch(
+              `${HF_BASE}/rows?dataset=${encodeURIComponent(DATASET)}&config=default&split=train&offset=${offset}&length=100`,
+              { headers: { 'User-Agent': 'Sift-App/1.0' } }
+            )
+              .then(r => r.json())
+              .then(d => (d.rows ?? []) as HFRow[])
+              .catch(() => [] as HFRow[])
+          )
+        );
+        const allRows = batches.flat();
+        const matched = allRows.filter(r =>
+          r.row[roleCol]?.toLowerCase().includes(role.toLowerCase())
+        );
+        rows = matched.slice(0, count);
+        roleTotal = matched.length;
+      }
+    } else {
+      // Random sample for browsing / category discovery
+      const maxOffset = Math.max(0, total - count);
+      const offset = Math.floor(Math.random() * maxOffset);
+      const rowsRes = await fetch(
+        `${HF_BASE}/rows?dataset=${encodeURIComponent(DATASET)}&config=default&split=train&offset=${offset}&length=${count}`,
+        { headers: { 'User-Agent': 'Sift-App/1.0' } }
+      );
+      const rowsData = await rowsRes.json();
+      rows = rowsData.rows ?? [];
     }
 
-    const resumes = filtered.map(r => r.row[resumeCol]).filter(s => s && s.length > 100);
+    const resumes = rows.map(r => r.row[resumeCol]).filter(s => s && s.length > 100);
 
-    // Grab a representative job description
+    // Pick the best (longest) job description from matched rows
     let jobDescription: string | null = null;
     if (jdCol) {
-      const jds = filtered.map(r => r.row[jdCol]).filter(Boolean);
-      jobDescription = jds[0] ?? null;
+      const jds = rows.map(r => r.row[jdCol]).filter(Boolean);
+      jobDescription = jds.sort((a, b) => b.length - a.length)[0] ?? null;
     }
 
     // Category breakdown
     const categories: Record<string, number> = {};
     if (roleCol) {
-      filtered.forEach(r => {
+      rows.forEach(r => {
         const c = r.row[roleCol];
         if (c) categories[c] = (categories[c] ?? 0) + 1;
       });
@@ -74,11 +114,11 @@ export async function GET(request: Request) {
       jobDescription,
       total,
       fetched: resumes.length,
-      offset,
-      dataset,
+      roleTotal,
+      dataset: DATASET,
       categories: Object.entries(categories)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 8)
+        .slice(0, 12)
         .map(([role, count]) => ({ role, count })),
     });
   } catch (err) {

@@ -126,7 +126,6 @@ export function SetupForm({ onStart }: Props) {
     setIsDragging(false);
     const pdfs = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf') || f.name.endsWith('.txt'));
     if (pdfs.length) { parseFiles(pdfs); return; }
-    // Also accept CSV drops
     const csvs = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'));
     if (csvs.length) handleCSVFile(csvs[0]);
   };
@@ -153,7 +152,6 @@ export function SetupForm({ onStart }: Props) {
         const rows = lines.slice(1).map(l => parseCSVLine(l));
         const validRows = rows.filter(r => r[colIdx]?.length > 50);
 
-        // Category breakdown
         let categories: string | undefined;
         if (catIdx >= 0) {
           const counts: Record<string, number> = {};
@@ -167,7 +165,6 @@ export function SetupForm({ onStart }: Props) {
 
         setCsvInfo({ totalRows: validRows.length, column: resumeCol, categories });
 
-        // Store all rows and apply sampling on submit
         const allTexts = validRows.map(r => r[colIdx]);
         const effectiveSize = Math.min(sampleSize, allTexts.length);
         const selected = randomize ? shuffle(allTexts).slice(0, effectiveSize) : allTexts.slice(0, effectiveSize);
@@ -201,7 +198,7 @@ export function SetupForm({ onStart }: Props) {
       <div className="px-6 pt-14 pb-8 text-center">
         <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 border border-indigo-500/30 px-4 py-1.5 mb-6">
           <span className="text-indigo-300 text-xs font-bold uppercase tracking-widest">
-            Blind Screening · 3 Elimination Rounds · CSV Import
+            Role Search · Blind Screening · 3 Elimination Rounds
           </span>
         </div>
         <h1 className="text-6xl font-black tracking-tight text-white mb-3">
@@ -210,116 +207,109 @@ export function SetupForm({ onStart }: Props) {
           </span>
         </h1>
         <p className="text-zinc-400 text-lg max-w-md mx-auto leading-relaxed">
-          Import thousands of real resumes. Swipe through candidates blind. Hire on merit.
+          Search 10,174 real resumes by role. Screen blind. Hire on merit.
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          {['Kaggle CSV import', 'PDF upload', 'Up to 2,484 real resumes', 'Bias-blind AI scoring'].map(s => (
-            <span key={s} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/50">{s}</span>
-          ))}
-        </div>
       </div>
 
       <div className="flex-1 px-6 pb-12 max-w-2xl mx-auto w-full">
         <form onSubmit={handleSubmit} className="space-y-5">
 
+          {/* Live HuggingFace role search — primary input method */}
+          <HuggingFaceFetcher
+            onLoad={(fetchedResumes, fetchedJd) => {
+              setResumes(fetchedResumes.join('\n---\n'));
+              if (fetchedJd) setJd(fetchedJd);
+              setCsvInfo(null);
+              setUploadedFiles([]);
+            }}
+          />
+
           {/* Job description */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
               Job Description
+              {jd && <span className="ml-2 text-indigo-400 normal-case font-normal">— auto-filled from dataset</span>}
             </label>
             <textarea
               value={jd}
               onChange={e => setJd(e.target.value)}
-              placeholder="Paste the job description here..."
-              className="w-full rounded-2xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 p-4 text-sm font-mono min-h-36 resize-y outline-none focus:border-indigo-500/50 transition"
+              placeholder="Auto-filled when you search a role, or paste your own..."
+              className="w-full rounded-2xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 p-4 text-sm font-mono min-h-32 resize-y outline-none focus:border-indigo-500/50 transition"
               required
             />
           </div>
 
-          {/* Resume sources */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-zinc-400">
-                Resumes
-                {resumeList.length > 0 && (
-                  <span className="ml-2 text-indigo-400 normal-case font-normal">
-                    — {resumeList.length} loaded
-                  </span>
-                )}
-              </label>
-              <button
-                type="button"
-                onClick={loadDemo}
-                className="text-xs text-zinc-500 hover:text-zinc-300 transition"
+          {/* Resume count indicator */}
+          {resumeList.length > 0 && (
+            <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3">
+              <span className="text-emerald-400 text-lg">✓</span>
+              <div>
+                <p className="text-emerald-300 text-sm font-bold">{resumeList.length} resumes loaded</p>
+                <p className="text-emerald-600 text-xs">All will be screened and ranked before swiping begins</p>
+              </div>
+            </div>
+          )}
+
+          {/* Collapse: other upload methods */}
+          <details className="group">
+            <summary className="text-zinc-500 text-xs cursor-pointer hover:text-zinc-300 transition select-none list-none flex items-center gap-2">
+              <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
+              Other ways to add resumes (PDF upload, CSV import, paste)
+            </summary>
+            <div className="mt-4 space-y-4">
+              {/* Upload zone */}
+              <div
+                onDrop={onDrop}
+                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                className={`rounded-2xl border-2 border-dashed p-6 transition-all ${
+                  isDragging
+                    ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01]'
+                    : 'border-white/10 hover:border-white/20'
+                }`}
               >
-                Load demo (5 candidates)
-              </button>
-            </div>
-
-            {/* Upload zone — handles both PDF and CSV drops */}
-            <div
-              onDrop={onDrop}
-              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
-              className={`rounded-2xl border-2 border-dashed p-6 transition-all ${
-                isDragging
-                  ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01]'
-                  : 'border-white/10 hover:border-white/20'
-              }`}
-            >
-              {isParsing ? (
-                <div className="flex flex-col items-center gap-2 py-4">
-                  <div className="h-8 w-8 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
-                  <p className="text-zinc-400 text-sm">Parsing files...</p>
-                </div>
-              ) : (
-                <div className="flex gap-3">
-                  {/* PDF upload */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/3 hover:bg-white/8 p-4 transition cursor-pointer"
-                  >
-                    <span className="text-2xl">📄</span>
-                    <span className="text-white/70 text-xs font-semibold">Upload PDFs / TXTs</span>
-                    <span className="text-zinc-600 text-[10px]">Drop or click · multiple OK</span>
-                  </button>
-
-                  {/* CSV import */}
-                  <button
-                    type="button"
-                    onClick={() => csvInputRef.current?.click()}
-                    className="flex-1 flex flex-col items-center gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 p-4 transition cursor-pointer"
-                  >
-                    <span className="text-2xl">📊</span>
-                    <span className="text-violet-300 text-xs font-semibold">Import CSV Dataset</span>
-                    <span className="text-zinc-600 text-[10px]">Kaggle · HuggingFace · Any CSV</span>
-                  </button>
-                </div>
-              )}
-              <input ref={fileInputRef} type="file" multiple accept=".pdf,.txt" className="hidden"
-                onChange={e => e.target.files && parseFiles(e.target.files)} />
-              <input ref={csvInputRef} type="file" accept=".csv" className="hidden"
-                onChange={e => e.target.files?.[0] && handleCSVFile(e.target.files[0])} />
-            </div>
-
-            {/* CSV info panel */}
-            {csvInfo && (
-              <div className="mt-3 rounded-2xl border border-violet-500/30 bg-violet-500/8 p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-violet-300 text-sm font-bold">{csvInfo.totalRows.toLocaleString()} resumes detected</p>
-                    <p className="text-zinc-500 text-xs mt-0.5">Column: <code className="text-zinc-400">{csvInfo.column}</code></p>
-                    {csvInfo.categories && (
-                      <p className="text-zinc-600 text-xs mt-1">Top categories: {csvInfo.categories}</p>
-                    )}
+                {isParsing ? (
+                  <div className="flex flex-col items-center gap-2 py-4">
+                    <div className="h-8 w-8 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+                    <p className="text-zinc-400 text-sm">Parsing files...</p>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/3 hover:bg-white/8 p-4 transition cursor-pointer"
+                    >
+                      <span className="text-2xl">📄</span>
+                      <span className="text-white/70 text-xs font-semibold">Upload PDFs / TXTs</span>
+                      <span className="text-zinc-600 text-[10px]">Drop or click · multiple OK</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => csvInputRef.current?.click()}
+                      className="flex-1 flex flex-col items-center gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 p-4 transition cursor-pointer"
+                    >
+                      <span className="text-2xl">📊</span>
+                      <span className="text-violet-300 text-xs font-semibold">Import CSV Dataset</span>
+                      <span className="text-zinc-600 text-[10px]">Kaggle · HuggingFace · Any CSV</span>
+                    </button>
+                  </div>
+                )}
+                <input ref={fileInputRef} type="file" multiple accept=".pdf,.txt" className="hidden"
+                  onChange={e => e.target.files && parseFiles(e.target.files)} />
+                <input ref={csvInputRef} type="file" accept=".csv" className="hidden"
+                  onChange={e => e.target.files?.[0] && handleCSVFile(e.target.files[0])} />
+              </div>
 
-                {/* Sample size picker */}
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <p className="text-zinc-400 text-xs font-semibold uppercase tracking-wider mb-2">Process how many?</p>
+              {/* CSV info panel */}
+              {csvInfo && (
+                <div className="rounded-2xl border border-violet-500/30 bg-violet-500/8 p-4">
+                  <p className="text-violet-300 text-sm font-bold">{csvInfo.totalRows.toLocaleString()} resumes detected</p>
+                  <p className="text-zinc-500 text-xs mt-0.5">Column: <code className="text-zinc-400">{csvInfo.column}</code></p>
+                  {csvInfo.categories && (
+                    <p className="text-zinc-600 text-xs mt-1">Top categories: {csvInfo.categories}</p>
+                  )}
+                  <div className="mt-4 space-y-3">
                     <div className="flex gap-2 flex-wrap">
                       {SAMPLE_OPTIONS.filter(o => o.value <= csvInfo.totalRows).map(o => (
                         <button
@@ -327,7 +317,6 @@ export function SetupForm({ onStart }: Props) {
                           type="button"
                           onClick={() => {
                             setSampleSize(o.value);
-                            // Re-parse with new sample size
                             if (csvInputRef.current?.files?.[0]) handleCSVFile(csvInputRef.current.files[0]);
                           }}
                           className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
@@ -339,77 +328,56 @@ export function SetupForm({ onStart }: Props) {
                           {o.label}
                         </button>
                       ))}
-                      {csvInfo.totalRows > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSampleSize(csvInfo.totalRows);
-                            if (csvInputRef.current?.files?.[0]) handleCSVFile(csvInputRef.current.files[0]);
-                          }}
-                          className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
-                            sampleSize === csvInfo.totalRows
-                              ? 'bg-violet-500 text-white'
-                              : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white border border-white/10'
-                          }`}
-                        >
-                          All {csvInfo.totalRows.toLocaleString()}
-                        </button>
-                      )}
                     </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={randomize}
+                        onChange={e => setRandomize(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="text-zinc-400 text-xs">Randomize selection (recommended)</span>
+                    </label>
                   </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={randomize}
-                      onChange={e => setRandomize(e.target.checked)}
-                      className="rounded"
-                    />
-                    <span className="text-zinc-400 text-xs">Randomize selection (recommended)</span>
-                  </label>
                 </div>
+              )}
+
+              {/* Uploaded PDF list */}
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-1">
+                  {uploadedFiles.map(f => (
+                    <div key={f.name} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs ${
+                      f.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                           : 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
+                    }`}>
+                      <span>{f.ok ? '✓' : '✗'} {f.name} {!f.ok && <span className="opacity-60">{f.error}</span>}</span>
+                      <button type="button" onClick={() => setUploadedFiles(p => p.filter(x => x.name !== f.name))}
+                        className="text-white/30 hover:text-white/60 ml-2">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Paste fallback */}
+              <div>
+                <p className="text-zinc-600 text-xs mb-2">Or paste resume text manually (separate with ---)</p>
+                <textarea
+                  value={resumes}
+                  onChange={e => setResumes(e.target.value)}
+                  placeholder={'Paste resumes separated by ---'}
+                  className="w-full rounded-2xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 p-4 text-sm font-mono min-h-28 resize-y outline-none focus:border-indigo-500/50 transition"
+                />
               </div>
-            )}
 
-            {/* Uploaded PDF list */}
-            {uploadedFiles.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {uploadedFiles.map(f => (
-                  <div key={f.name} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs ${
-                    f.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
-                         : 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
-                  }`}>
-                    <span>{f.ok ? '✓' : '✗'} {f.name} {!f.ok && <span className="opacity-60">{f.error}</span>}</span>
-                    <button type="button" onClick={() => setUploadedFiles(p => p.filter(x => x.name !== f.name))}
-                      className="text-white/30 hover:text-white/60 ml-2">×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Paste fallback */}
-            <details className="mt-3">
-              <summary className="text-zinc-600 text-xs cursor-pointer hover:text-zinc-400 transition select-none">
-                Or paste resume text manually
-              </summary>
-              <textarea
-                value={resumes}
-                onChange={e => setResumes(e.target.value)}
-                placeholder={'Paste resumes separated by ---'}
-                className="mt-2 w-full rounded-2xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 p-4 text-sm font-mono min-h-32 resize-y outline-none focus:border-indigo-500/50 transition"
-              />
-            </details>
-          </div>
-
-          {/* Live HuggingFace fetch */}
-          <HuggingFaceFetcher
-            onLoad={(resumes, jd) => {
-              setResumes(resumes.join('\n---\n'));
-              if (jd) setJd(jd);
-              setCsvInfo(null);
-              setUploadedFiles([]);
-            }}
-          />
+              <button
+                type="button"
+                onClick={loadDemo}
+                className="text-zinc-500 hover:text-zinc-300 transition text-xs"
+              >
+                Load demo data (5 sample candidates)
+              </button>
+            </div>
+          </details>
 
           {error && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">{error}</div>
@@ -421,7 +389,7 @@ export function SetupForm({ onStart }: Props) {
             className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-4 text-sm font-bold text-white hover:from-indigo-400 hover:to-violet-400 transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-indigo-500/20"
           >
             {resumeList.length > 0
-              ? `Start Sifting → Process ${resumeList.length} candidate${resumeList.length !== 1 ? 's' : ''}`
+              ? `Start Sifting → Screen & rank ${resumeList.length} candidate${resumeList.length !== 1 ? 's' : ''}`
               : 'Start Sifting →'}
           </button>
         </form>
@@ -430,32 +398,56 @@ export function SetupForm({ onStart }: Props) {
   );
 }
 
-// ── HuggingFace live fetcher ─────────────────────────────────────────────────
+// ── HuggingFace role search ──────────────────────────────────────────────────
 
 interface HFCategory { role: string; count: number; }
 
+const ROLE_CHIP_COLORS = [
+  'border-blue-500/30 bg-blue-500/8 text-blue-300 hover:bg-blue-500/20',
+  'border-violet-500/30 bg-violet-500/8 text-violet-300 hover:bg-violet-500/20',
+  'border-pink-500/30 bg-pink-500/8 text-pink-300 hover:bg-pink-500/20',
+  'border-amber-500/30 bg-amber-500/8 text-amber-300 hover:bg-amber-500/20',
+  'border-emerald-500/30 bg-emerald-500/8 text-emerald-300 hover:bg-emerald-500/20',
+  'border-cyan-500/30 bg-cyan-500/8 text-cyan-300 hover:bg-cyan-500/20',
+];
+
 function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string | null) => void }) {
+  const [categories, setCategories] = useState<HFCategory[]>([]);
+  const [loadingCats, setLoadingCats] = useState(true);
+  const [total, setTotal] = useState<number | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [customRole, setCustomRole] = useState('');
   const [count, setCount] = useState(50);
   const [loading, setLoading] = useState(false);
-  const [info, setInfo] = useState<{ total: number; fetched: number; categories: HFCategory[] } | null>(null);
+  const [result, setResult] = useState<{ fetched: number; roleTotal: number | null; role: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch dataset metadata on mount
+  // Load categories on mount
   useEffect(() => {
-    fetch('/api/fetch-dataset?count=1')
+    fetch('/api/fetch-dataset?count=100')
       .then(r => r.json())
-      .then(d => { if (d.total) setInfo({ total: d.total, fetched: 0, categories: d.categories ?? [] }); })
-      .catch(() => {});
+      .then(d => {
+        setCategories(d.categories ?? []);
+        setTotal(d.total ?? null);
+        setLoadingCats(false);
+      })
+      .catch(() => setLoadingCats(false));
   }, []);
 
+  const activeRole = customRole.trim() || selectedRole;
+  const COUNTS = [10, 25, 50, 100];
+
   const handleFetch = async () => {
+    if (!activeRole) return;
     setLoading(true);
     setError(null);
+    setResult(null);
     try {
-      const res = await fetch(`/api/fetch-dataset?count=${count}`);
+      const res = await fetch(`/api/fetch-dataset?count=${count}&role=${encodeURIComponent(activeRole)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Fetch failed');
-      setInfo({ total: data.total, fetched: data.fetched, categories: data.categories ?? [] });
+      if (!data.resumes?.length) throw new Error(`No resumes found for "${activeRole}" — try a different role`);
+      setResult({ fetched: data.fetched, roleTotal: data.roleTotal, role: activeRole });
       onLoad(data.resumes, data.jobDescription);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to fetch');
@@ -464,37 +456,69 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
     }
   };
 
-  const COUNTS = [10, 25, 50, 100];
-
   return (
     <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-500/8 to-violet-500/8 p-5">
+      {/* Header */}
       <div className="flex items-start gap-3 mb-4">
         <span className="text-2xl">🤗</span>
         <div>
-          <p className="text-white font-bold text-sm">Live Resume Database</p>
+          <p className="text-white font-bold text-sm">Search Real Resumes by Role</p>
           <p className="text-zinc-400 text-xs mt-0.5">
-            {info?.total
-              ? <><span className="text-pink-300 font-bold">{info.total.toLocaleString()} real resumes</span> available · no download needed</>
-              : 'Connecting to HuggingFace...'}
+            {total
+              ? <><span className="text-pink-300 font-bold">{total.toLocaleString()} real resumes</span> · pick a role to search</>
+              : 'Connecting to database...'}
           </p>
         </div>
       </div>
 
-      {info?.categories && info.categories.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {info.categories.map(c => (
-            <span key={c.role} className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-[10px] text-zinc-400">
-              {c.role}
-            </span>
-          ))}
-          <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-[10px] text-zinc-500">
-            + more roles
-          </span>
-        </div>
-      )}
+      {/* Role chips */}
+      <div className="mb-4">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Select a role</p>
+        {loadingCats ? (
+          <div className="flex gap-2 flex-wrap">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-7 rounded-full bg-white/5 animate-pulse" style={{ width: `${60 + i * 15}px` }} />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {categories.map((c, i) => {
+              const isSelected = selectedRole === c.role && !customRole;
+              const colorClass = ROLE_CHIP_COLORS[i % ROLE_CHIP_COLORS.length];
+              return (
+                <button
+                  key={c.role}
+                  type="button"
+                  onClick={() => { setSelectedRole(c.role); setCustomRole(''); setResult(null); }}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+                    isSelected
+                      ? 'bg-pink-500 border-pink-500 text-white scale-105 shadow-lg shadow-pink-500/20'
+                      : colorClass
+                  }`}
+                >
+                  {c.role}
+                  <span className="ml-1.5 opacity-50 text-[10px]">{c.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
+      {/* Custom role input */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={customRole}
+          onChange={e => { setCustomRole(e.target.value); setSelectedRole(null); setResult(null); }}
+          placeholder="Or search a custom role (e.g. Machine Learning Engineer)..."
+          className="w-full rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 px-4 py-2.5 text-sm outline-none focus:border-pink-500/50 transition"
+        />
+      </div>
+
+      {/* Count picker + fetch button */}
       <div className="flex items-center gap-3">
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 shrink-0">
           {COUNTS.map(n => (
             <button
               key={n}
@@ -514,27 +538,39 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
         <button
           type="button"
           onClick={handleFetch}
-          disabled={loading}
-          className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-bold text-white hover:from-pink-400 hover:to-violet-400 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          disabled={loading || !activeRole}
+          className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-bold text-white hover:from-pink-400 hover:to-violet-400 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
               <span className="h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              Fetching {count} resumes...
+              Searching...
             </>
+          ) : activeRole ? (
+            <>⚡ Search {count} &ldquo;{activeRole}&rdquo; resumes</>
           ) : (
-            <>⚡ Fetch {count} Random Resumes</>
+            <>Select a role above</>
           )}
         </button>
       </div>
 
-      {info?.fetched ? (
-        <p className="mt-2 text-xs text-pink-300/70">
-          ✓ {info.fetched} resumes loaded · random sample from {info.total.toLocaleString()} · job description pre-filled
-        </p>
-      ) : null}
+      {/* Result confirmation */}
+      {result && !loading && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2.5">
+          <span className="text-emerald-400 text-sm mt-0.5">✓</span>
+          <div>
+            <p className="text-emerald-300 text-xs font-semibold">
+              {result.fetched} &ldquo;{result.role}&rdquo; resumes loaded
+              {result.roleTotal ? ` · ${result.roleTotal.toLocaleString()} total in database` : ''}
+            </p>
+            <p className="text-emerald-600 text-[10px] mt-0.5">Job description auto-filled from dataset · edit it below if needed</p>
+          </div>
+        </div>
+      )}
 
-      {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
+      {error && (
+        <p className="mt-3 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">{error}</p>
+      )}
     </div>
   );
 }

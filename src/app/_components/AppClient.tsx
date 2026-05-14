@@ -33,7 +33,6 @@ export function AppClient() {
 
     const allCandidates: CandidateProfile[] = [];
 
-    // Process in batches of BATCH_SIZE to stay within API rate limits
     for (let i = 0; i < resumes.length; i += BATCH_SIZE) {
       const batch = resumes.slice(i, i + BATCH_SIZE);
 
@@ -58,6 +57,11 @@ export function AppClient() {
         setProcessed(prev => prev + batch.length);
       }
     }
+
+    // All done — sort by fit score (highest first) then start swiping
+    const sorted = [...allCandidates].sort((a, b) => b.fitScore - a.fitScore);
+    setCandidates(sorted);
+    setView('swiping');
   }, []);
 
   const handleComplete = (f: CandidateProfile[], h: RoundHistory[]) => {
@@ -82,7 +86,6 @@ export function AppClient() {
       processed={processed}
       total={total}
       candidates={candidates}
-      onStartEarly={() => setView('swiping')}
     />
   );
 
