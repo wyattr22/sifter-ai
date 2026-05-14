@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 // ── CSV parsing ──────────────────────────────────────────────────────────────
 
@@ -401,16 +401,15 @@ export function SetupForm({ onStart }: Props) {
             </details>
           </div>
 
-          {/* Dataset guide */}
-          <div className="rounded-2xl border border-white/8 bg-white/3 p-4">
-            <p className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2">📦 Get real resume data</p>
-            <div className="space-y-1.5 text-xs text-zinc-500">
-              <p>1. Go to <span className="text-zinc-300 font-mono">kaggle.com/datasets/jillanisofttech/updated-resume-dataset</span></p>
-              <p>2. Download the CSV · column <code className="text-zinc-400">Resume_str</code> has 2,484 real resumes</p>
-              <p>3. Click <span className="text-violet-400 font-semibold">Import CSV Dataset</span> above and select it</p>
-              <p>4. Pick sample size (50 recommended for demo), then start sifting</p>
-            </div>
-          </div>
+          {/* Live HuggingFace fetch */}
+          <HuggingFaceFetcher
+            onLoad={(resumes, jd) => {
+              setResumes(resumes.join('\n---\n'));
+              if (jd) setJd(jd);
+              setCsvInfo(null);
+              setUploadedFiles([]);
+            }}
+          />
 
           {error && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">{error}</div>
@@ -427,6 +426,115 @@ export function SetupForm({ onStart }: Props) {
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ── HuggingFace live fetcher ─────────────────────────────────────────────────
+
+interface HFCategory { role: string; count: number; }
+
+function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string | null) => void }) {
+  const [count, setCount] = useState(50);
+  const [loading, setLoading] = useState(false);
+  const [info, setInfo] = useState<{ total: number; fetched: number; categories: HFCategory[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch dataset metadata on mount
+  useEffect(() => {
+    fetch('/api/fetch-dataset?count=1')
+      .then(r => r.json())
+      .then(d => { if (d.total) setInfo({ total: d.total, fetched: 0, categories: d.categories ?? [] }); })
+      .catch(() => {});
+  }, []);
+
+  const handleFetch = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/fetch-dataset?count=${count}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Fetch failed');
+      setInfo({ total: data.total, fetched: data.fetched, categories: data.categories ?? [] });
+      onLoad(data.resumes, data.jobDescription);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to fetch');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const COUNTS = [10, 25, 50, 100];
+
+  return (
+    <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-500/8 to-violet-500/8 p-5">
+      <div className="flex items-start gap-3 mb-4">
+        <span className="text-2xl">🤗</span>
+        <div>
+          <p className="text-white font-bold text-sm">Live Resume Database</p>
+          <p className="text-zinc-400 text-xs mt-0.5">
+            {info?.total
+              ? <><span className="text-pink-300 font-bold">{info.total.toLocaleString()} real resumes</span> available · no download needed</>
+              : 'Connecting to HuggingFace...'}
+          </p>
+        </div>
+      </div>
+
+      {info?.categories && info.categories.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {info.categories.map(c => (
+            <span key={c.role} className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-[10px] text-zinc-400">
+              {c.role}
+            </span>
+          ))}
+          <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-[10px] text-zinc-500">
+            + more roles
+          </span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <div className="flex gap-1.5">
+          {COUNTS.map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setCount(n)}
+              className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                count === n
+                  ? 'bg-pink-500 text-white'
+                  : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-white/10'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={handleFetch}
+          disabled={loading}
+          className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-bold text-white hover:from-pink-400 hover:to-violet-400 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <span className="h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              Fetching {count} resumes...
+            </>
+          ) : (
+            <>⚡ Fetch {count} Random Resumes</>
+          )}
+        </button>
+      </div>
+
+      {info?.fetched ? (
+        <p className="mt-2 text-xs text-pink-300/70">
+          ✓ {info.fetched} resumes loaded · random sample from {info.total.toLocaleString()} · job description pre-filled
+        </p>
+      ) : null}
+
+      {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
     </div>
   );
 }
