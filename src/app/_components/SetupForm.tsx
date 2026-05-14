@@ -198,16 +198,16 @@ export function SetupForm({ onStart }: Props) {
       <div className="px-6 pt-14 pb-8 text-center">
         <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 border border-indigo-500/30 px-4 py-1.5 mb-6">
           <span className="text-indigo-300 text-xs font-bold uppercase tracking-widest">
-            Role Search · Blind Screening · 3 Elimination Rounds
+            200 Resumes · 60 Seconds · Blind Screening · 3 Rounds
           </span>
         </div>
         <h1 className="text-6xl font-black tracking-tight text-white mb-3">
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-400 to-pink-400">
-            Sift
+            Sifter
           </span>
         </h1>
         <p className="text-zinc-400 text-lg max-w-md mx-auto leading-relaxed">
-          Search 10,174 real resumes by role. Screen blind. Hire on merit.
+          200 resumes screened in under 60 seconds. Swipe to hire on merit.
         </p>
       </div>
 

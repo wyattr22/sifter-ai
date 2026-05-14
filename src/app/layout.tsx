@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Job Screener AI",
-  description: "AI-powered resume screening. Get an ADVANCE, HOLD, or REJECT decision in seconds.",
+  title: "Sifter — AI Resume Screener",
+  description: "Screen 200 resumes in under 60 seconds. Swipe to hire on merit, not bias.",
 };
 
 export default function RootLayout({

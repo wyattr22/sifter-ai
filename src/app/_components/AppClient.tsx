@@ -10,12 +10,33 @@ import type { RoundHistory } from './SwipeView';
 
 type View = 'setup' | 'processing' | 'swiping' | 'results';
 
-// 3 simultaneous API calls — fast progress, within Groq rate limits
-const CONCURRENCY = 3;
+// 5 simultaneous AI calls — fast progress within Groq limits
+const CONCURRENCY = 5;
+// Only AI-analyze the top candidates by keyword match; rest are pre-filtered out
+const PRE_FILTER_TOP = 40;
 
 interface SetupPayload {
   jobDescription: string;
   resumes: string[];
+}
+
+// Common words to ignore during keyword matching
+const STOPWORDS = new Set([
+  'the','and','for','are','with','has','have','this','that','from','will','been',
+  'more','than','your','our','their','you','can','not','all','any','its','they',
+  'who','what','when','where','how','was','were','able','well','also','into',
+  'such','each','which','their','there','then','only','both','very','just','over',
+]);
+
+function roughScore(jobDescription: string, resume: string): number {
+  const jdTokens = Array.from(new Set(
+    (jobDescription.toLowerCase().match(/\b[a-z]{3,}\b/g) ?? [])
+      .filter(w => !STOPWORDS.has(w))
+  ));
+  if (jdTokens.length === 0) return 0;
+  const resumeLower = resume.toLowerCase();
+  const matched = jdTokens.filter(t => resumeLower.includes(t));
+  return matched.length / jdTokens.length;
 }
 
 export function AppClient() {
@@ -23,21 +44,34 @@ export function AppClient() {
   const [candidates, setCandidates] = useState<CandidateProfile[]>([]);
   const [processed, setProcessed] = useState(0);
   const [total, setTotal] = useState(0);
+  const [preFiltered, setPreFiltered] = useState<{ original: number; analyzed: number } | null>(null);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [finalists, setFinalists] = useState<CandidateProfile[]>([]);
   const [history, setHistory] = useState<RoundHistory[]>([]);
 
   const runBatchProcessing = useCallback(async ({ jobDescription, resumes }: SetupPayload) => {
     setView('processing');
-    setTotal(resumes.length);
     setProcessed(0);
     setCandidates([]);
     setProcessingError(null);
+    setPreFiltered(null);
 
+    // ── Step 1: Instant client-side pre-filter ─────────────────────────────
+    // Score all resumes by keyword overlap with JD — no API call needed
+    const scored = resumes
+      .map((resume, i) => ({ resume, i, score: roughScore(jobDescription, resume) }))
+      .sort((a, b) => b.score - a.score);
+
+    const topN = Math.min(PRE_FILTER_TOP, resumes.length);
+    const topResumes = scored.slice(0, topN);
+
+    setPreFiltered({ original: resumes.length, analyzed: topN });
+    setTotal(topN);
+
+    // ── Step 2: AI deep analysis on top candidates only ────────────────────
     const allCandidates: CandidateProfile[] = [];
     let processedCount = 0;
 
-    // Process one resume per API call, CONCURRENCY at a time
     const processOne = async (resume: string, index: number): Promise<CandidateProfile | null> => {
       try {
         const res = await fetch('/api/batch-screen', {
@@ -56,16 +90,14 @@ export function AppClient() {
       } catch {
         return null;
       } finally {
-        // Tick up immediately when this resume finishes (success or fail)
         processedCount += 1;
         setProcessed(processedCount);
       }
     };
 
-    // Run in windows of CONCURRENCY
-    for (let i = 0; i < resumes.length; i += CONCURRENCY) {
-      const chunk = resumes.slice(i, i + CONCURRENCY);
-      const results = await Promise.all(chunk.map((resume, j) => processOne(resume, i + j)));
+    for (let i = 0; i < topResumes.length; i += CONCURRENCY) {
+      const chunk = topResumes.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(chunk.map(({ resume, i: origIdx }) => processOne(resume, origIdx)));
       const valid = results.filter(Boolean) as CandidateProfile[];
       if (valid.length > 0) {
         allCandidates.push(...valid);
@@ -74,11 +106,10 @@ export function AppClient() {
     }
 
     if (allCandidates.length === 0) {
-      setProcessingError('All candidates failed to process. The AI service may be busy — try again with fewer resumes.');
+      setProcessingError('All candidates failed to process. The AI service may be busy — try again.');
       return;
     }
 
-    // Sort by fit score (best first), then start swiping
     const sorted = [...allCandidates].sort((a, b) => b.fitScore - a.fitScore);
     setCandidates(sorted);
     setView('swiping');
@@ -96,6 +127,7 @@ export function AppClient() {
     setHistory([]);
     setProcessed(0);
     setTotal(0);
+    setPreFiltered(null);
     setProcessingError(null);
     setView('setup');
   };
@@ -107,6 +139,7 @@ export function AppClient() {
       processed={processed}
       total={total}
       candidates={candidates}
+      preFiltered={preFiltered}
       error={processingError}
       onReset={handleReset}
     />

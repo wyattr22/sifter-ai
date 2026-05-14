@@ -6,6 +6,7 @@ interface Props {
   processed: number;
   total: number;
   candidates: CandidateProfile[];
+  preFiltered: { original: number; analyzed: number } | null;
   error: string | null;
   onReset: () => void;
 }
@@ -14,11 +15,11 @@ const LEVEL_EMOJI: Record<string, string> = {
   junior: '🌱', mid: '⚡', senior: '🔥', lead: '👑', principal: '🚀',
 };
 
-export function ProcessingView({ processed, total, candidates, error, onReset }: Props) {
+export function ProcessingView({ processed, total, candidates, preFiltered, error, onReset }: Props) {
   const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
   const isDone = processed >= total && total > 0;
-  const successRate = processed > 0 ? Math.round((candidates.length / processed) * 100) : 0;
   const recent = [...candidates].reverse().slice(0, 5);
+  const dropped = preFiltered ? preFiltered.original - preFiltered.analyzed : 0;
 
   if (error) {
     return (
@@ -41,13 +42,22 @@ export function ProcessingView({ processed, total, candidates, error, onReset }:
   return (
     <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-indigo-950 to-zinc-950 flex flex-col px-6 py-12">
       {/* Header */}
-      <div className="text-center mb-10">
-        <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 border border-indigo-500/30 px-4 py-1.5 mb-6">
+      <div className="text-center mb-8">
+        <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 border border-indigo-500/30 px-4 py-1.5 mb-5">
           <span className={`h-2 w-2 rounded-full ${isDone ? 'bg-emerald-400' : 'bg-indigo-400 animate-pulse'}`} />
           <span className="text-indigo-300 text-xs font-bold uppercase tracking-widest">
-            {isDone ? 'Processing Complete' : 'Live Processing'}
+            {isDone ? 'Analysis Complete' : 'Sifter AI — Live Analysis'}
           </span>
         </div>
+
+        {/* Pre-filter callout */}
+        {preFiltered && preFiltered.original > preFiltered.analyzed && (
+          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-4 py-1.5 mb-4">
+            <span className="text-emerald-300 text-xs font-semibold">
+              ⚡ Instant pre-screen: {preFiltered.original} resumes → <span className="font-black">{preFiltered.analyzed} top candidates</span> in &lt;1s
+            </span>
+          </div>
+        )}
 
         <div className="text-8xl font-black text-white tabular-nums">
           {processed}
@@ -55,20 +65,19 @@ export function ProcessingView({ processed, total, candidates, error, onReset }:
         </div>
         <p className="text-zinc-400 mt-2 text-lg">
           {isDone
-            ? `${candidates.length} candidates screened — sorted by fit score`
-            : 'Anonymizing and analyzing candidates...'}
+            ? `${candidates.length} candidates analyzed — sorted by fit score`
+            : 'AI deep-analysis: skills · experience · scale · achievements · domain fit'}
         </p>
 
-        {/* Success rate indicator */}
-        {processed > 0 && candidates.length < processed && (
+        {preFiltered && dropped > 0 && (
           <p className="text-zinc-600 text-sm mt-1">
-            {candidates.length} of {processed} screened successfully ({successRate}%)
+            {dropped} low-match resumes filtered before AI — saving ~{Math.round(dropped * 4 / 60)} min of analysis
           </p>
         )}
       </div>
 
       {/* Progress bar */}
-      <div className="max-w-xl mx-auto w-full mb-10">
+      <div className="max-w-xl mx-auto w-full mb-8">
         <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/10">
           <div
             className={`h-full rounded-full transition-all duration-500 ${
@@ -80,14 +89,14 @@ export function ProcessingView({ processed, total, candidates, error, onReset }:
           />
         </div>
         <div className="flex justify-between text-xs text-zinc-600 mt-2">
-          <span>Blind screening active · 5 criteria evaluated per candidate</span>
+          <span>Blind screening active</span>
           <span>{pct}%</span>
         </div>
       </div>
 
       {/* Live candidate feed */}
       {recent.length > 0 && (
-        <div className="max-w-xl mx-auto w-full mb-8">
+        <div className="max-w-xl mx-auto w-full mb-6">
           <div className="flex items-center gap-2 mb-3">
             <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
               {isDone ? 'Top candidates by fit score' : 'Live feed'}
@@ -112,9 +121,7 @@ export function ProcessingView({ processed, total, candidates, error, onReset }:
                     <span className="text-zinc-500 text-xs capitalize">{c.careerLevel}</span>
                     <span className="text-zinc-600 text-xs">{c.yearsExperience}y exp</span>
                   </div>
-                  <p className="text-zinc-500 text-xs truncate mt-0.5">
-                    {c.scoreBreakdown || c.advancePitch}
-                  </p>
+                  <p className="text-zinc-500 text-xs truncate mt-0.5">{c.scoreBreakdown || c.advancePitch}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className={`text-sm font-black ${c.fitScore >= 75 ? 'text-emerald-400' : c.fitScore >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
@@ -131,13 +138,9 @@ export function ProcessingView({ processed, total, candidates, error, onReset }:
       {/* Status footer */}
       <div className="text-center">
         {isDone ? (
-          <p className="text-emerald-400/70 text-sm font-semibold animate-pulse">
-            Starting swipe view...
-          </p>
+          <p className="text-emerald-400/70 text-sm font-semibold animate-pulse">Starting swipe view...</p>
         ) : (
-          <p className="text-zinc-600 text-sm">
-            Evaluating: skills · experience · scale · achievements · domain fit
-          </p>
+          <p className="text-zinc-600 text-sm">5 concurrent analyses running...</p>
         )}
       </div>
     </div>
