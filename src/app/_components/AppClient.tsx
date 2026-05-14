@@ -10,7 +10,8 @@ import type { RoundHistory } from './SwipeView';
 
 type View = 'setup' | 'processing' | 'swiping' | 'results';
 
-const BATCH_SIZE = 3; // Reduced to avoid Groq rate limits
+// 3 simultaneous API calls — fast progress, within Groq rate limits
+const CONCURRENCY = 3;
 
 interface SetupPayload {
   jobDescription: string;
@@ -34,45 +35,50 @@ export function AppClient() {
     setProcessingError(null);
 
     const allCandidates: CandidateProfile[] = [];
+    let processedCount = 0;
 
-    for (let i = 0; i < resumes.length; i += BATCH_SIZE) {
-      const batch = resumes.slice(i, i + BATCH_SIZE);
-
+    // Process one resume per API call, CONCURRENCY at a time
+    const processOne = async (resume: string, index: number): Promise<CandidateProfile | null> => {
       try {
         const res = await fetch('/api/batch-screen', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobDescription, resumes: batch }),
+          body: JSON.stringify({ jobDescription, resumes: [resume] }),
         });
 
-        // Always advance the progress counter regardless of success/failure
-        setProcessed(prev => prev + batch.length);
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          console.error('Batch failed:', err);
-          continue;
-        }
+        if (!res.ok) return null;
 
         const data = await res.json();
-        const batchCandidates: CandidateProfile[] = (data.candidates ?? []).map(
-          (c: CandidateProfile, j: number) => ({ ...c, id: String(i + j + 1) })
-        );
+        const raw = data.candidates?.[0];
+        if (!raw) return null;
 
-        allCandidates.push(...batchCandidates);
-        setCandidates(prev => [...prev, ...batchCandidates]);
-      } catch (err) {
-        console.error('Batch fetch error:', err);
-        setProcessed(prev => prev + batch.length);
+        return { ...raw, id: String(index + 1) } as CandidateProfile;
+      } catch {
+        return null;
+      } finally {
+        // Tick up immediately when this resume finishes (success or fail)
+        processedCount += 1;
+        setProcessed(processedCount);
+      }
+    };
+
+    // Run in windows of CONCURRENCY
+    for (let i = 0; i < resumes.length; i += CONCURRENCY) {
+      const chunk = resumes.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(chunk.map((resume, j) => processOne(resume, i + j)));
+      const valid = results.filter(Boolean) as CandidateProfile[];
+      if (valid.length > 0) {
+        allCandidates.push(...valid);
+        setCandidates(prev => [...prev, ...valid]);
       }
     }
 
     if (allCandidates.length === 0) {
-      setProcessingError('All candidates failed to process. Check your internet connection or try fewer resumes.');
+      setProcessingError('All candidates failed to process. The AI service may be busy — try again with fewer resumes.');
       return;
     }
 
-    // Sort by fit score (highest first) then start swiping
+    // Sort by fit score (best first), then start swiping
     const sorted = [...allCandidates].sort((a, b) => b.fitScore - a.fitScore);
     setCandidates(sorted);
     setView('swiping');
