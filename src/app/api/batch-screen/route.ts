@@ -4,19 +4,18 @@ import { CandidateProfileSchema } from '@/lib/candidate-schema';
 
 export const runtime = 'nodejs';
 
-// Concise prompt — fewer tokens = faster response
-const SYSTEM_PROMPT = `You are a recruiter AI. Screen resumes blindly. Anonymize all person names → "Candidate", companies → [Company A/B/etc], schools → [University].
+// Ultra-concise prompt — minimize tokens per call
+const SYSTEM_PROMPT = `Recruiter AI. Anonymize: names→"Candidate", companies→[Company A/B], schools→[University]. Keep skills/years/numbers.
 
-Score each dimension 0-100:
-skillsScore: each required skill = 100/count(required) pts. Award only if CLEARLY present. Bonus skills add up to 15 extra.
-experienceScore: years match → exact/above=70, 1yr short=55, 2yr short=40, 3+yr short=20. Level match → exact=+20, adjacent=+10, 2+ off=+0.
-scaleScore: solo/toy=15, small startup=35, mid-company=55, large org=75, FAANG/unicorn scale=95
-achievementScore: no metrics=15, vague=35, some numbers=55, clear business impact=75, exceptional quantified results=95
-domainScore: exact industry=100, adjacent=75, different but transferable=50, unrelated=20
-fitScore: round(skillsScore×0.30 + experienceScore×0.20 + scaleScore×0.20 + achievementScore×0.20 + domainScore×0.10)
+Score 0-100 each, then output ONLY a raw JSON object (no markdown, no fences):
+skillsScore: matched required skills / total required * 85, bonus skills +5 each (max 15 bonus)
+experienceScore: exact years+level=90, 1yr short=65, 2yr short=40, 3+yr short=20, overqualified=60
+scaleScore: solo/toy=15, small startup=35, mid-company=55, large org=75, FAANG-scale=95
+achievementScore: no numbers=15, vague claims=40, clear metrics=70, exceptional impact=95
+domainScore: exact industry=100, adjacent=75, different=45, unrelated=15
+fitScore=round(skillsScore*0.3+experienceScore*0.2+scaleScore*0.2+achievementScore*0.2+domainScore*0.1)
 
-Return ONLY a JSON object, no markdown:
-{"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["..."],"requiredSkillsMissing":["..."],"bonusSkills":["..."],"topAchievement":"anonymized achievement with metric","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"scoreBreakdown":"Skills N · Exp N · Scale N · Impact N · Domain N → fit N","advancePitch":"≤12 words best reason to advance","concernFlag":"≤12 words biggest gap or risk"}`;
+{"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["skill"],"requiredSkillsMissing":["skill"],"bonusSkills":["skill"],"topAchievement":"anonymized+metric","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"scoreBreakdown":"Skills N·Exp N·Scale N·Impact N·Domain N→fit N","advancePitch":"12 words max","concernFlag":"12 words max"}`;
 
 function buildPrompt(jobDescription: string, resume: string) {
   return `JOB DESCRIPTION:\n${jobDescription}\n\nRESUME:\n${resume}`;
@@ -41,7 +40,7 @@ export async function POST(request: Request) {
     const settled = await Promise.allSettled(
       resumes.map(async (resume, i) => {
         const result = await generateText({
-          model: groq('llama-3.3-70b-versatile'),
+          model: groq('llama-3.1-8b-instant'),
           system: SYSTEM_PROMPT,
           prompt: buildPrompt(jobDescription, resume),
           maxOutputTokens: 600,

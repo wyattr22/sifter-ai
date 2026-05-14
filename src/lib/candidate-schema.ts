@@ -8,13 +8,13 @@ export const CandidateProfileSchema = z.object({
   requiredSkillsMissing: z.array(z.string()),
   bonusSkills: z.array(z.string()),
   topAchievement: z.string(),
-  // Five scoring dimensions
-  skillsScore: z.number().int().min(0).max(100),       // Required tech/tools coverage
-  experienceScore: z.number().int().min(0).max(100),   // Years + seniority match
-  scaleScore: z.number().int().min(0).max(100),        // Team/system/revenue scale
-  achievementScore: z.number().int().min(0).max(100),  // Quantified impact quality
-  domainScore: z.number().int().min(0).max(100),       // Industry/domain alignment
-  fitScore: z.number().int().min(0).max(100),          // Weighted composite
+  // Five scoring dimensions — all default to 0 so a missing field doesn't drop the candidate
+  skillsScore: z.number().min(0).max(100).default(0).transform(Math.round),
+  experienceScore: z.number().min(0).max(100).default(0).transform(Math.round),
+  scaleScore: z.number().min(0).max(100).default(0).transform(Math.round),
+  achievementScore: z.number().min(0).max(100).default(0).transform(Math.round),
+  domainScore: z.number().min(0).max(100).default(0).transform(Math.round),
+  fitScore: z.number().min(0).max(100).default(0).transform(Math.round),
   scoreBreakdown: z.string().default(''),
   advancePitch: z.string(),
   concernFlag: z.string(),
