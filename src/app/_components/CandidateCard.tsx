@@ -129,6 +129,7 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
         transform: `scale(${scaleArr[position] ?? 0.87}) translateY(${yArr[position] ?? 42}px)`,
         transition: 'transform 0.3s ease',
         zIndex: 10 - position,
+        opacity: position === 1 ? 0.6 : 0.35,
         pointerEvents: 'none' as const,
       };
 
@@ -142,7 +143,10 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
       onPointerCancel={onPointerUp}
     >
       <div className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden select-none">
-        <div className={`h-1.5 w-full bg-gradient-to-r ${ROUND_ACCENTS[round]} to-transparent`} />
+        <div className={`h-1 w-full bg-gradient-to-r ${ROUND_ACCENTS[round]} to-transparent`} />
+
+        {/* Background cards show no content — prevents bleed-through */}
+        {!isTop && <div className="h-72" />}
 
         {/* Drag stamps */}
         <div className="pointer-events-none absolute inset-0 flex items-start justify-end p-5" style={{ opacity: advOpacity }}>
@@ -156,47 +160,45 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
           </div>
         </div>
 
+        {isTop && (
         <div className="p-5 space-y-3">
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Blind Candidate</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Blind Candidate</p>
                 <RankBadge rank={rank} total={totalCandidates} />
               </div>
-              <p className="text-2xl font-black text-zinc-900">{candidate.yearsExperience} yrs exp</p>
+              <p className="text-3xl font-black text-zinc-900 leading-none">{candidate.yearsExperience} <span className="text-lg font-semibold text-zinc-400">yrs exp</span></p>
             </div>
             <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${LEVEL_COLORS[candidate.careerLevel] ?? 'bg-zinc-100 text-zinc-700'}`}>
               {candidate.careerLevel}
             </span>
           </div>
 
-          {/* ── DECISION BANNER — always visible, always first ── */}
-          {candidate.recruiterSummary ? (
-            <div className={`rounded-2xl border p-3.5 ${ds.bg}`}>
-              <div className="flex items-center gap-2 mb-2">
+          {/* Decision banner */}
+          <div className={`rounded-2xl border p-3.5 ${ds.bg}`}>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
                 <span className={`h-2 w-2 rounded-full ${ds.dot}`} />
                 <span className={`text-xs font-black uppercase tracking-wider ${ds.labelColor}`}>{ds.label}</span>
               </div>
+              <span className={`text-xs font-bold tabular-nums ${ds.labelColor}`}>fit {candidate.fitScore}</span>
+            </div>
+            {candidate.recruiterSummary && (
               <p className={`text-sm leading-relaxed ${ds.textColor}`}>{candidate.recruiterSummary}</p>
-            </div>
-          ) : (
-            <div className={`rounded-2xl border px-4 py-2.5 flex items-center gap-2 ${ds.bg}`}>
-              <span className="text-lg">{ds.icon}</span>
-              <span className={`text-sm font-black ${ds.labelColor}`}>{ds.label}</span>
-              <span className={`text-xs ml-auto font-bold ${ds.labelColor}`}>Fit {candidate.fitScore}</span>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Round 1: Skills */}
           {round === 0 && (
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-blue-500">Skills Match</p>
-                <span className="text-blue-600 font-black text-lg">{candidate.skillsScore}</span>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500">Skills Match</p>
+                <span className="text-blue-600 font-black text-xl tabular-nums">{candidate.skillsScore}</span>
               </div>
               <ScoreBar label="Skills" score={candidate.skillsScore} color="bg-blue-500" />
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
                 {candidate.requiredSkillsFound.map(s => (
                   <span key={s} className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✓ {s}</span>
                 ))}
@@ -213,14 +215,14 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
           {/* Round 2: Experience, Scale, Achievement */}
           {round === 1 && (
             <div className="space-y-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-500">Experience & Impact</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Experience & Impact</p>
               <div className="space-y-1.5">
                 <ScoreBar label="Experience" score={candidate.experienceScore} color="bg-violet-500" />
                 <ScoreBar label="Scale" score={candidate.scaleScore} color="bg-purple-400" />
                 <ScoreBar label="Achievements" score={candidate.achievementScore} color="bg-fuchsia-500" />
               </div>
               {candidate.topAchievement && (
-                <div className="rounded-2xl bg-violet-50 px-4 py-3">
+                <div className="rounded-2xl bg-violet-50 border border-violet-100 px-4 py-3">
                   <p className="text-xs font-medium text-violet-900 leading-relaxed">&ldquo;{candidate.topAchievement}&rdquo;</p>
                 </div>
               )}
@@ -231,8 +233,8 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
           {round === 2 && (
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Overall Fit</p>
-                <span className={`font-black text-2xl ${candidate.fitScore >= 75 ? 'text-emerald-600' : candidate.fitScore >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Overall Fit</p>
+                <span className={`font-black text-3xl tabular-nums ${candidate.fitScore >= 75 ? 'text-emerald-600' : candidate.fitScore >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
                   {candidate.fitScore}
                 </span>
               </div>
@@ -240,20 +242,19 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
                 <ScoreBar label="Skills" score={candidate.skillsScore} color="bg-blue-500" />
                 <ScoreBar label="Experience" score={candidate.experienceScore} color="bg-violet-500" />
                 <ScoreBar label="Scale" score={candidate.scaleScore} color="bg-purple-400" />
-                <ScoreBar label="Achievements" score={candidate.achievementScore} color="bg-fuchsia-500" />
+                <ScoreBar label="Impact" score={candidate.achievementScore} color="bg-fuchsia-500" />
                 <ScoreBar label="Domain" score={candidate.domainScore} color="bg-emerald-500" />
               </div>
-            </div>
-          )}
-
-          {/* Concern flag — Round 3 only, where all context is visible */}
-          {round === 2 && candidate.concernFlag && (
-            <div className="flex items-start gap-2 border-t border-zinc-100 pt-2.5">
-              <span className="mt-0.5 text-amber-500 shrink-0">⚠</span>
-              <span className="text-zinc-500 leading-snug text-xs">{candidate.concernFlag}</span>
+              {candidate.concernFlag && (
+                <div className="flex items-start gap-2 border-t border-zinc-100 pt-2.5">
+                  <span className="mt-0.5 text-amber-500 shrink-0 text-sm">⚠</span>
+                  <span className="text-zinc-500 leading-snug text-xs">{candidate.concernFlag}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

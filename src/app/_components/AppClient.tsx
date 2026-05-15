@@ -24,23 +24,35 @@ interface SetupPayload {
   resumes: string[];
 }
 
-// Common words to ignore during keyword matching
+// Common and JD-boilerplate words that appear in almost every resume — not useful signals
 const STOPWORDS = new Set([
   'the','and','for','are','with','has','have','this','that','from','will','been',
   'more','than','your','our','their','you','can','not','all','any','its','they',
   'who','what','when','where','how','was','were','able','well','also','into',
-  'such','each','which','their','there','then','only','both','very','just','over',
+  'such','each','which','there','then','only','both','very','just','over',
+  // JD boilerplate present in nearly every resume
+  'years','year','experience','experienced','working','work','strong','team','teams',
+  'build','building','built','using','skills','skill','knowledge','develop','role',
+  'position','required','requirements','preferred','including','support','manage',
+  'environment','company','business','solutions','system','good','great','plus',
+  'looking','seeking','help','ensure','drive','lead','make','ability','level',
 ]);
 
 function roughScore(jobDescription: string, resume: string): number {
   const jdTokens = Array.from(new Set(
-    (jobDescription.toLowerCase().match(/\b[a-z]{3,}\b/g) ?? [])
+    (jobDescription.toLowerCase().match(/\b[a-z]{4,}\b/g) ?? [])
       .filter(w => !STOPWORDS.has(w))
   ));
   if (jdTokens.length === 0) return 0;
   const resumeLower = resume.toLowerCase();
-  const matched = jdTokens.filter(t => resumeLower.includes(t));
-  return matched.length / jdTokens.length;
+  // Weight by specificity: words 7+ chars are likely technical terms (PostgreSQL, DynamoDB, etc.)
+  let matched = 0, total = 0;
+  for (const token of jdTokens) {
+    const weight = token.length >= 7 ? 2 : 1;
+    total += weight;
+    if (resumeLower.includes(token)) matched += weight;
+  }
+  return total > 0 ? matched / total : 0;
 }
 
 export function AppClient() {

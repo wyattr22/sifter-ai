@@ -30,12 +30,17 @@ const MAX_JD_CHARS = 200;
 
 const SYSTEM_PROMPT = `Recruiter AI. Screen resumes vs job description. Anonymize: names=Candidate, companies=[Co], schools=[Univ].
 
-Scores 0-100: skillsScore=matched/total*85+5/bonus(max15). experienceScore: exact=90,1yr_short=65,2yr_short=40,overqualified=60. scaleScore: solo=15,startup=35,mid=55,large=75,FAANG=95. achievementScore: none=15,vague=40,metrics=70,exceptional=95. domainScore: exact=100,adjacent=75,different=45,unrelated=15. fitScore=round(skills*.3+exp*.2+scale*.2+achieve*.2+domain*.1).
+skillsScore: coverage=(matched_required/total_required). score=round(coverage*70). Then: +5 per bonus skill (max+15). Then: -10 per missing required skill (floor 0). A candidate matching 1 of 5 required skills scores ~4. All required matched scores 70+. Bonus skills can push to 85.
+experienceScore: exact=90, 1yr_short=65, 2yr_short=40, 3+yr_short=20, overqualified=60.
+scaleScore: solo=15, startup=35, mid=55, large=75, FAANG=95.
+achievementScore: none=15, vague=40, metrics=70, exceptional=95.
+domainScore: exact=100, adjacent=75, different=45, unrelated=15.
+fitScore=round(skills*.3+exp*.2+scale*.2+achieve*.2+domain*.1).
+decision: ADVANCE=75+ HOLD=50-74 REJECT=<50.
 
-decision: ADVANCE=75+ HOLD=50-74 REJECT=<50
-recruiterSummary: 1 sentence, max 12 words, name skills+years, no apostrophes, straight quotes only.
+recruiterSummary: 1 sentence, max 12 words. Lead with years and top skill. Proper capitalization. No apostrophes. Example: "6 years Python and Django, strong AWS, missing PostgreSQL."
 
-Return ONLY a raw JSON array, no markdown. Schema: {"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["3 max"],"requiredSkillsMissing":["3 max"],"bonusSkills":["2 max"],"topAchievement":"6 words max","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"decision":"ADVANCE|HOLD|REJECT","recruiterSummary":"12 words max","concernFlag":"5 words max"}`;
+Return ONLY a raw JSON array, no markdown. Schema: {"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["3 max"],"requiredSkillsMissing":["3 max"],"bonusSkills":["2 max"],"topAchievement":"6 words max","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"decision":"ADVANCE|HOLD|REJECT","recruiterSummary":"12 words, proper caps","concernFlag":"5 words max"}`;
 
 function buildPrompt(jobDescription: string, resumes: string[]): string {
   const jd = jobDescription.slice(0, MAX_JD_CHARS);
