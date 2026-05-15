@@ -42,12 +42,15 @@ recruiterSummary: 1 sentence, max 12 words. Lead with years and top skill. Prope
 
 Return ONLY a raw JSON array, no markdown. Schema: {"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["3 max"],"requiredSkillsMissing":["3 max"],"bonusSkills":["2 max"],"topAchievement":"6 words max","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"decision":"ADVANCE|HOLD|REJECT","recruiterSummary":"12 words, proper caps","concernFlag":"5 words max"}`;
 
-function buildPrompt(jobDescription: string, resumes: string[]): string {
+function buildPrompt(jobDescription: string, resumes: string[], requiredSkills?: string[], bonusSkills?: string[]): string {
   const jd = jobDescription.slice(0, MAX_JD_CHARS);
+  const skillContext = requiredSkills?.length
+    ? `\nRequired skills: ${requiredSkills.join(', ')}${bonusSkills?.length ? `\nBonus skills: ${bonusSkills.join(', ')}` : ''}`
+    : '';
   const blocks = resumes
     .map((r, i) => `RESUME ${i + 1}:\n${r.slice(0, MAX_RESUME_CHARS)}`)
     .join('\n\n---\n\n');
-  return `JOB DESCRIPTION:\n${jd}\n\n${blocks}\n\nReturn a JSON array of exactly ${resumes.length} objects in order.`;
+  return `JOB DESCRIPTION:\n${jd}${skillContext}\n\n${blocks}\n\nReturn a JSON array of exactly ${resumes.length} objects in order.`;
 }
 
 function sanitizeJson(s: string): string {
@@ -88,13 +91,15 @@ async function callWithProviders(
   resumes: string[],
   providerIdx: number,
   attempt = 0,
+  requiredSkills?: string[],
+  bonusSkills?: string[],
 ): Promise<unknown[]> {
   const model = PROVIDERS[providerIdx % PROVIDERS.length];
   try {
     const { text } = await generateText({
       model,
       system: SYSTEM_PROMPT,
-      prompt: buildPrompt(jobDescription, resumes),
+      prompt: buildPrompt(jobDescription, resumes, requiredSkills, bonusSkills),
       maxOutputTokens: Math.min(180 * resumes.length + 100, 1200),
     });
     const arr = extractJsonArray(text);
@@ -107,12 +112,12 @@ async function callWithProviders(
       const nextIdx = providerIdx + 1;
       if (nextIdx < PROVIDERS.length) {
         // Try next provider immediately before waiting
-        return callWithProviders(jobDescription, resumes, nextIdx, 0);
+        return callWithProviders(jobDescription, resumes, nextIdx, 0, requiredSkills, bonusSkills);
       }
       // All providers hit — wait then cycle back from beginning
       if (attempt < 3) {
         await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-        return callWithProviders(jobDescription, resumes, 0, attempt + 1);
+        return callWithProviders(jobDescription, resumes, 0, attempt + 1, requiredSkills, bonusSkills);
       }
     }
     throw err;
@@ -121,9 +126,11 @@ async function callWithProviders(
 
 export async function POST(request: Request) {
   try {
-    const { jobDescription, resumes } = await request.json() as {
+    const { jobDescription, resumes, requiredSkills, bonusSkills } = await request.json() as {
       jobDescription: string;
       resumes: string[];
+      requiredSkills?: string[];
+      bonusSkills?: string[];
     };
 
     if (!jobDescription?.trim() || !resumes?.length) {
@@ -132,7 +139,7 @@ export async function POST(request: Request) {
 
     // Start from a random provider so concurrent requests spread across all keys
     const startIdx = Math.floor(Math.random() * PROVIDERS.length);
-    const rawArray = await callWithProviders(jobDescription, resumes, startIdx);
+    const rawArray = await callWithProviders(jobDescription, resumes, startIdx, 0, requiredSkills, bonusSkills);
 
     const candidates = rawArray
       .slice(0, resumes.length)

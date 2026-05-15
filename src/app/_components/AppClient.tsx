@@ -22,6 +22,8 @@ function preFilterCount(total: number): number {
 interface SetupPayload {
   jobDescription: string;
   resumes: string[];
+  requiredSkills: string[];
+  bonusSkills: string[];
 }
 
 // Common and JD-boilerplate words that appear in almost every resume — not useful signals
@@ -38,14 +40,26 @@ const STOPWORDS = new Set([
   'looking','seeking','help','ensure','drive','lead','make','ability','level',
 ]);
 
-function roughScore(jobDescription: string, resume: string): number {
+function roughScore(resume: string, requiredSkills: string[], jobDescription: string): number {
+  const resumeLower = resume.toLowerCase();
+
+  // If explicit required skills are set, gate purely on those
+  if (requiredSkills.length > 0) {
+    let matched = 0, total = 0;
+    for (const skill of requiredSkills) {
+      const weight = skill.length >= 7 ? 2 : 1;
+      total += weight;
+      if (resumeLower.includes(skill.toLowerCase())) matched += weight;
+    }
+    return total > 0 ? matched / total : 0;
+  }
+
+  // Fallback: extract from JD text
   const jdTokens = Array.from(new Set(
     (jobDescription.toLowerCase().match(/\b[a-z]{4,}\b/g) ?? [])
       .filter(w => !STOPWORDS.has(w))
   ));
   if (jdTokens.length === 0) return 0;
-  const resumeLower = resume.toLowerCase();
-  // Weight by specificity: words 7+ chars are likely technical terms (PostgreSQL, DynamoDB, etc.)
   let matched = 0, total = 0;
   for (const token of jdTokens) {
     const weight = token.length >= 7 ? 2 : 1;
@@ -65,7 +79,7 @@ export function AppClient() {
   const [finalists, setFinalists] = useState<CandidateProfile[]>([]);
   const [history, setHistory] = useState<RoundHistory[]>([]);
 
-  const runBatchProcessing = useCallback(async ({ jobDescription, resumes }: SetupPayload) => {
+  const runBatchProcessing = useCallback(async ({ jobDescription, resumes, requiredSkills, bonusSkills }: SetupPayload) => {
     setView('processing');
     setProcessed(0);
     setCandidates([]);
@@ -75,7 +89,7 @@ export function AppClient() {
     // ── Step 1: Instant client-side pre-filter ─────────────────────────────
     // Score all resumes by keyword overlap with JD — no API call needed
     const scored = resumes
-      .map((resume, i) => ({ resume, i, score: roughScore(jobDescription, resume) }))
+      .map((resume, i) => ({ resume, i, score: roughScore(resume, requiredSkills, jobDescription) }))
       .sort((a, b) => b.score - a.score);
 
     const topN = Math.min(preFilterCount(resumes.length), resumes.length);
@@ -92,7 +106,7 @@ export function AppClient() {
       const res = await fetch('/api/batch-screen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobDescription, resumes }),
+        body: JSON.stringify({ jobDescription, resumes, requiredSkills, bonusSkills }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();

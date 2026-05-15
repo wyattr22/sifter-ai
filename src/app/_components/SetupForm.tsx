@@ -58,11 +58,48 @@ const DEMO_RESUMES = `8 years software engineering. Python expert (6 yrs), Djang
 ---
 2 years. Python bootcamp graduate. 3 Django tutorial projects. No production experience. MySQL. Eager learner.`;
 
+// ── Skill extraction ─────────────────────────────────────────────────────────
+
+const KNOWN_TECH = [
+  'python','javascript','typescript','java','golang','rust','ruby','scala','kotlin','swift',
+  'react','angular','vue','nextjs','nodejs','django','fastapi','flask','rails','spring','laravel',
+  'postgres','postgresql','mysql','mongodb','redis','kafka','elasticsearch','dynamodb','cassandra',
+  'docker','kubernetes','terraform','ansible','jenkins','linux','bash','git',
+  'graphql','grpc','rest','sql','nosql','hadoop','spark','airflow','dbt','flink',
+  'pytorch','tensorflow','scikit','pandas','numpy','mlflow',
+  'aws','gcp','azure','s3','ec2','lambda','bigquery','snowflake',
+];
+
+function extractSkillsFromJD(jd: string): string[] {
+  const found = new Set<string>();
+  // ALL-CAPS acronyms: AWS, SQL, API, ML, CI/CD
+  for (const m of jd.matchAll(/\b[A-Z]{2,8}\b/g)) found.add(m[0]);
+  // PascalCase compound: PostgreSQL, TypeScript, DynamoDB, GraphQL
+  for (const m of jd.matchAll(/\b[A-Z][a-z]+[A-Z][a-zA-Z0-9]*\b/g)) found.add(m[0]);
+  // Tech with punctuation: Node.js, C++, C#, .NET
+  for (const m of jd.matchAll(/\b\w+\.js\b|\bC\+\+\b|\bC#\b|\.NET\b/gi)) found.add(m[0]);
+  // Known lowercase tech terms — capitalize for display
+  const jdLow = jd.toLowerCase();
+  for (const t of KNOWN_TECH) {
+    if (jdLow.includes(t)) {
+      const regex = new RegExp(`\\b${t}\\b`, 'i');
+      const match = jd.match(regex);
+      found.add(match ? match[0] : t.charAt(0).toUpperCase() + t.slice(1));
+    }
+  }
+  const noise = new Set(['The','Our','Your','This','Must','Have','Will','With','For','And',
+    'But','All','Some','More','Many','Each','Also','Very','Well','Just','Over','Team',
+    'Company','Role','Work','Lead','Join','Full','Time','New','Can','May','Strong','Good']);
+  return [...found].filter(s => !noise.has(s) && s.length >= 2).slice(0, 20);
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface SetupPayload {
   jobDescription: string;
   resumes: string[];
+  requiredSkills: string[];
+  bonusSkills: string[];
 }
 
 interface Props {
@@ -88,8 +125,36 @@ export function SetupForm({ onStart }: Props) {
   const [sampleSize, setSampleSize] = useState(50);
   const [randomize, setRandomize] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
+  const [bonusSkills, setBonusSkills] = useState<string[]>([]);
+  const [newSkill, setNewSkill] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const applyExtractedSkills = useCallback((jdText: string) => {
+    const extracted = extractSkillsFromJD(jdText);
+    setRequiredSkills(extracted);
+    setBonusSkills([]);
+  }, []);
+
+  const moveToBonus = (skill: string) => {
+    setRequiredSkills(p => p.filter(s => s !== skill));
+    setBonusSkills(p => [...p, skill]);
+  };
+  const moveToRequired = (skill: string) => {
+    setBonusSkills(p => p.filter(s => s !== skill));
+    setRequiredSkills(p => [...p, skill]);
+  };
+  const removeSkill = (skill: string) => {
+    setRequiredSkills(p => p.filter(s => s !== skill));
+    setBonusSkills(p => p.filter(s => s !== skill));
+  };
+  const addSkill = () => {
+    const s = newSkill.trim();
+    if (!s || requiredSkills.includes(s) || bonusSkills.includes(s)) return;
+    setRequiredSkills(p => [...p, s]);
+    setNewSkill('');
+  };
 
   const resumeList = resumes.split('---').map(r => r.trim()).filter(Boolean);
 
@@ -184,12 +249,13 @@ export function SetupForm({ onStart }: Props) {
     setResumes(DEMO_RESUMES);
     setUploadedFiles([]);
     setCsvInfo(null);
+    applyExtractedSkills(DEMO_JD);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!jd.trim() || resumeList.length === 0) return;
-    onStart({ jobDescription: jd, resumes: resumeList });
+    onStart({ jobDescription: jd, resumes: resumeList, requiredSkills, bonusSkills });
   };
 
   return (
@@ -218,7 +284,10 @@ export function SetupForm({ onStart }: Props) {
           <HuggingFaceFetcher
             onLoad={(fetchedResumes, fetchedJd) => {
               setResumes(fetchedResumes.join('\n---\n'));
-              if (fetchedJd) setJd(fetchedJd);
+              if (fetchedJd) {
+                setJd(fetchedJd);
+                applyExtractedSkills(fetchedJd);
+              }
               setCsvInfo(null);
               setUploadedFiles([]);
             }}
@@ -238,6 +307,76 @@ export function SetupForm({ onStart }: Props) {
               required
             />
           </div>
+
+          {/* Skill requirements tagger */}
+          {jd.trim().length > 30 && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Skill Requirements</p>
+                  <p className="text-zinc-600 text-[11px] mt-0.5">Click any skill to move it between Required and Nice-to-have</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => applyExtractedSkills(jd)}
+                  className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 transition"
+                >
+                  Re-extract
+                </button>
+              </div>
+
+              {/* Required skills */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 mb-1.5">Required</p>
+                <div className="flex flex-wrap gap-1.5 min-h-6">
+                  {requiredSkills.length === 0 && (
+                    <span className="text-zinc-600 text-xs italic">No required skills set — add some below</span>
+                  )}
+                  {requiredSkills.map(s => (
+                    <span key={s} className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-300">
+                      <button type="button" onClick={() => moveToBonus(s)} title="Move to nice-to-have">{s}</button>
+                      <button type="button" onClick={() => removeSkill(s)} className="text-emerald-500/60 hover:text-emerald-300 ml-0.5 leading-none">×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Bonus skills */}
+              {bonusSkills.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Nice-to-have</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {bonusSkills.map(s => (
+                      <span key={s} className="inline-flex items-center gap-1 rounded-full bg-white/5 border border-white/10 px-2.5 py-0.5 text-xs font-medium text-zinc-400">
+                        <button type="button" onClick={() => moveToRequired(s)} title="Move to required">{s}</button>
+                        <button type="button" onClick={() => removeSkill(s)} className="text-zinc-600 hover:text-zinc-400 ml-0.5 leading-none">×</button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Add skill */}
+              <div className="flex gap-2 pt-1">
+                <input
+                  type="text"
+                  value={newSkill}
+                  onChange={e => setNewSkill(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSkill())}
+                  placeholder="Add a skill..."
+                  className="flex-1 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 px-3 py-1.5 text-xs outline-none focus:border-indigo-500/50 transition"
+                />
+                <button
+                  type="button"
+                  onClick={addSkill}
+                  disabled={!newSkill.trim()}
+                  className="rounded-xl bg-indigo-500/20 border border-indigo-500/30 px-3 py-1.5 text-xs font-bold text-indigo-300 hover:bg-indigo-500/30 transition disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Resume count indicator */}
           {resumeList.length > 0 && (
