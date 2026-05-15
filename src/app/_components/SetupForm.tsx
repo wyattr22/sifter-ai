@@ -144,14 +144,6 @@ interface ScoringWeights {
 
 const DEFAULT_WEIGHTS: ScoringWeights = { skills: 30, experience: 20, scale: 20, impact: 20, domain: 10 };
 
-const WEIGHT_LABELS: { key: keyof ScoringWeights; label: string; color: string }[] = [
-  { key: 'skills',     label: 'Skills Match',  color: 'bg-blue-500' },
-  { key: 'experience', label: 'Experience',    color: 'bg-violet-500' },
-  { key: 'scale',      label: 'Scale',         color: 'bg-purple-400' },
-  { key: 'impact',     label: 'Impact',        color: 'bg-fuchsia-500' },
-  { key: 'domain',     label: 'Domain',        color: 'bg-emerald-500' },
-];
-
 interface SetupPayload {
   jobDescription: string;
   resumes: string[];
@@ -193,27 +185,6 @@ export function SetupForm({ onStart }: Props) {
   const [weightsOpen, setWeightsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
-
-  const adjustWeight = (key: keyof ScoringWeights, newVal: number) => {
-    setWeights(prev => {
-      const delta = newVal - prev[key];
-      const others = (Object.keys(prev) as (keyof ScoringWeights)[]).filter(k => k !== key);
-      const otherTotal = others.reduce((s, k) => s + prev[k], 0);
-      const next = { ...prev, [key]: newVal };
-      if (otherTotal > 0) {
-        others.forEach(k => {
-          next[k] = Math.max(0, Math.round(prev[k] - delta * (prev[k] / otherTotal)));
-        });
-      }
-      // Correct rounding drift so total always = 100
-      const total = (Object.values(next) as number[]).reduce((s, v) => s + v, 0);
-      if (total !== 100) {
-        const adj = others.find(k => next[k] > 0) ?? key;
-        next[adj] = Math.max(0, next[adj] + (100 - total));
-      }
-      return next;
-    });
-  };
 
   const applyExtractedSkills = useCallback((jdText: string) => {
     const { required, bonus } = extractAndRankSkills(jdText);
@@ -685,35 +656,77 @@ export function SetupForm({ onStart }: Props) {
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Scoring Weights</p>
                 <p className="text-zinc-600 text-[11px] mt-0.5">
-                  {WEIGHT_LABELS.map(w => `${w.label} ${weights[w.key]}%`).join(' · ')}
+                  Skills {weights.skills}% · Exp {weights.experience}% · Scale {weights.scale}% · Impact {weights.impact}% · Domain {weights.domain}%
                 </p>
               </div>
               <span className="text-zinc-500 text-xs">{weightsOpen ? '▲' : '▼'}</span>
             </button>
             {weightsOpen && (
               <div className="px-4 pb-4 space-y-3 border-t border-white/10 pt-3">
-                {WEIGHT_LABELS.map(({ key, label, color }) => (
-                  <div key={key} className="flex items-center gap-3">
-                    <span className="text-zinc-400 text-xs w-24 shrink-0">{label}</span>
-                    <input
-                      type="range" min={0} max={100} step={5}
-                      value={weights[key]}
-                      onChange={e => adjustWeight(key, Number(e.target.value))}
-                      className="flex-1 accent-indigo-500"
-                    />
-                    <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights[key]}%</span>
-                    <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
-                      <div className={`h-full rounded-full ${color}`} style={{ width: `${weights[key]}%` }} />
-                    </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-400 text-xs w-24 shrink-0">Skills Match</span>
+                  <input type="range" min={0} max={100} step={5} value={weights.skills}
+                    onChange={e => setWeights(prev => ({ ...prev, skills: Number(e.target.value) }))}
+                    className="flex-1 accent-indigo-500" />
+                  <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights.skills}%</span>
+                  <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full rounded-full bg-blue-500" style={{ width: `${weights.skills}%` }} />
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setWeights(DEFAULT_WEIGHTS)}
-                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition"
-                >
-                  Reset to defaults
-                </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-400 text-xs w-24 shrink-0">Experience</span>
+                  <input type="range" min={0} max={100} step={5} value={weights.experience}
+                    onChange={e => setWeights(prev => ({ ...prev, experience: Number(e.target.value) }))}
+                    className="flex-1 accent-indigo-500" />
+                  <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights.experience}%</span>
+                  <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full rounded-full bg-violet-500" style={{ width: `${weights.experience}%` }} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-400 text-xs w-24 shrink-0">Scale</span>
+                  <input type="range" min={0} max={100} step={5} value={weights.scale}
+                    onChange={e => setWeights(prev => ({ ...prev, scale: Number(e.target.value) }))}
+                    className="flex-1 accent-indigo-500" />
+                  <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights.scale}%</span>
+                  <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full rounded-full bg-purple-400" style={{ width: `${weights.scale}%` }} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-400 text-xs w-24 shrink-0">Impact</span>
+                  <input type="range" min={0} max={100} step={5} value={weights.impact}
+                    onChange={e => setWeights(prev => ({ ...prev, impact: Number(e.target.value) }))}
+                    className="flex-1 accent-indigo-500" />
+                  <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights.impact}%</span>
+                  <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full rounded-full bg-fuchsia-500" style={{ width: `${weights.impact}%` }} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-400 text-xs w-24 shrink-0">Domain</span>
+                  <input type="range" min={0} max={100} step={5} value={weights.domain}
+                    onChange={e => setWeights(prev => ({ ...prev, domain: Number(e.target.value) }))}
+                    className="flex-1 accent-indigo-500" />
+                  <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights.domain}%</span>
+                  <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${weights.domain}%` }} />
+                  </div>
+                </div>
+                {(() => {
+                  const total = weights.skills + weights.experience + weights.scale + weights.impact + weights.domain;
+                  return (
+                    <div className="flex items-center justify-between pt-1 border-t border-white/10">
+                      <button type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}
+                        className="text-[11px] text-zinc-500 hover:text-zinc-300 transition">
+                        Reset to defaults
+                      </button>
+                      <span className={`text-xs font-bold tabular-nums ${total === 100 ? 'text-emerald-400' : total > 100 ? 'text-rose-400' : 'text-amber-400'}`}>
+                        Total: {total}%{total !== 100 ? (total > 100 ? ' — reduce by ' + (total - 100) + '%' : ' — add ' + (100 - total) + '%') : ' ✓'}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -724,7 +737,7 @@ export function SetupForm({ onStart }: Props) {
 
           <button
             type="submit"
-            disabled={resumeList.length === 0 || !jd.trim()}
+            disabled={resumeList.length === 0 || !jd.trim() || Object.values(weights).reduce((s, v) => s + v, 0) !== 100}
             className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-4 text-sm font-bold text-white hover:from-indigo-400 hover:to-violet-400 transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-indigo-500/20"
           >
             {resumeList.length > 0
