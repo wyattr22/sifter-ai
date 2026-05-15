@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 
 // ── CSV parsing ──────────────────────────────────────────────────────────────
 
@@ -411,6 +411,31 @@ const ROLE_CHIP_COLORS = [
   'border-cyan-500/30 bg-cyan-500/8 text-cyan-300 hover:bg-cyan-500/20',
 ];
 
+const COMMON_ROLES = [
+  'Software Engineer', 'Senior Software Engineer', 'Staff Software Engineer', 'Principal Software Engineer',
+  'Frontend Engineer', 'Backend Engineer', 'Full Stack Engineer', 'Full Stack Developer',
+  'Data Engineer', 'Data Scientist', 'Data Analyst', 'Business Intelligence Analyst', 'Analytics Engineer',
+  'Machine Learning Engineer', 'AI Engineer', 'MLOps Engineer', 'Research Scientist',
+  'DevOps Engineer', 'Site Reliability Engineer', 'Platform Engineer', 'Cloud Engineer', 'Infrastructure Engineer',
+  'iOS Engineer', 'Android Engineer', 'Mobile Engineer', 'React Native Developer',
+  'Embedded Systems Engineer', 'Firmware Engineer', 'Systems Engineer',
+  'Security Engineer', 'Cybersecurity Analyst', 'Penetration Tester',
+  'QA Engineer', 'Test Engineer', 'SDET',
+  'Product Manager', 'Senior Product Manager', 'Principal Product Manager', 'Group Product Manager',
+  'Product Designer', 'UX Designer', 'UI Designer', 'UX Researcher',
+  'Engineering Manager', 'Director of Engineering', 'VP of Engineering', 'CTO',
+  'Technical Program Manager', 'Program Manager', 'Project Manager', 'Scrum Master',
+  'Solutions Architect', 'Cloud Architect', 'Enterprise Architect',
+  'Financial Analyst', 'Investment Analyst', 'Quantitative Analyst',
+  'Account Manager', 'Account Executive', 'Sales Engineer', 'Solutions Engineer',
+  'Marketing Manager', 'Growth Manager', 'Content Strategist', 'SEO Specialist',
+  'Operations Manager', 'Business Analyst', 'Management Consultant',
+  'Recruiting Coordinator', 'Technical Recruiter', 'HR Business Partner',
+  'Database Administrator', 'Network Engineer', 'Network Administrator',
+  'Blockchain Developer', 'Smart Contract Engineer', 'Web3 Engineer',
+  'Game Developer', 'Game Designer', 'Unity Developer', 'Unreal Engine Developer',
+];
+
 function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string | null) => void }) {
   const [categories, setCategories] = useState<HFCategory[]>([]);
   const [loadingCats, setLoadingCats] = useState(true);
@@ -421,6 +446,9 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ fetched: number; roleTotal: number | null; role: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedIdx, setHighlightedIdx] = useState(-1);
+  const autocompleteRef = useRef<HTMLDivElement>(null);
 
   // Load categories on mount
   useEffect(() => {
@@ -434,8 +462,44 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
       .catch(() => setLoadingCats(false));
   }, []);
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+        setHighlightedIdx(-1);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const suggestions = useMemo(() => {
+    const q = customRole.trim().toLowerCase();
+    if (!q) return [];
+    const fromDB = categories.map(c => c.role);
+    const all = Array.from(new Set([...fromDB, ...COMMON_ROLES]));
+    return all.filter(r => r.toLowerCase().includes(q)).slice(0, 8);
+  }, [customRole, categories]);
+
+  const selectSuggestion = (role: string) => {
+    setCustomRole(role);
+    setSelectedRole(null);
+    setResult(null);
+    setShowSuggestions(false);
+    setHighlightedIdx(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightedIdx(i => Math.min(i + 1, suggestions.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlightedIdx(i => Math.max(i - 1, -1)); }
+    else if (e.key === 'Enter' && highlightedIdx >= 0) { e.preventDefault(); selectSuggestion(suggestions[highlightedIdx]); }
+    else if (e.key === 'Escape') { setShowSuggestions(false); setHighlightedIdx(-1); }
+  };
+
   const activeRole = customRole.trim() || selectedRole;
-  const COUNTS = [10, 25, 50, 100];
+  const COUNTS = [10, 25, 50, 100, 200];
 
   const handleFetch = async () => {
     if (!activeRole) return;
@@ -456,6 +520,15 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
     }
   };
 
+  const FALLBACK_CHIPS = [
+    'Software Engineer', 'Data Scientist', 'Data Engineer', 'Product Manager',
+    'Frontend Engineer', 'Backend Engineer', 'Machine Learning Engineer', 'DevOps Engineer',
+    'Data Analyst', 'Full Stack Engineer', 'iOS Engineer', 'Android Engineer',
+  ];
+  const displayChips: { role: string; count: number }[] = categories.length > 0
+    ? categories
+    : FALLBACK_CHIPS.map(r => ({ role: r, count: 0 }));
+
   return (
     <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-500/8 to-violet-500/8 p-5">
       {/* Header */}
@@ -465,8 +538,8 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
           <p className="text-white font-bold text-sm">Search Real Resumes by Role</p>
           <p className="text-zinc-400 text-xs mt-0.5">
             {total
-              ? <><span className="text-pink-300 font-bold">{total.toLocaleString()} real resumes</span> · pick a role to search</>
-              : 'Connecting to database...'}
+              ? <><span className="text-pink-300 font-bold">{total.toLocaleString()} real resumes</span> · 5 datasets · pick a role to search</>
+              : 'Connecting to databases...'}
           </p>
         </div>
       </div>
@@ -482,7 +555,7 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {categories.map((c, i) => {
+            {displayChips.map((c, i) => {
               const isSelected = selectedRole === c.role && !customRole;
               const colorClass = ROLE_CHIP_COLORS[i % ROLE_CHIP_COLORS.length];
               return (
@@ -497,7 +570,7 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
                   }`}
                 >
                   {c.role}
-                  <span className="ml-1.5 opacity-50 text-[10px]">{c.count}</span>
+                  {c.count > 0 && <span className="ml-1.5 opacity-50 text-[10px]">{c.count}</span>}
                 </button>
               );
             })}
@@ -505,20 +578,47 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
         )}
       </div>
 
-      {/* Custom role input */}
-      <div className="mb-4">
+      {/* Custom role input with autocomplete */}
+      <div className="mb-4 relative" ref={autocompleteRef}>
         <input
           type="text"
           value={customRole}
-          onChange={e => { setCustomRole(e.target.value); setSelectedRole(null); setResult(null); }}
+          onChange={e => {
+            setCustomRole(e.target.value);
+            setSelectedRole(null);
+            setResult(null);
+            setShowSuggestions(true);
+            setHighlightedIdx(-1);
+          }}
+          onFocus={() => { if (customRole.trim()) setShowSuggestions(true); }}
+          onKeyDown={handleKeyDown}
           placeholder="Or search a custom role (e.g. Machine Learning Engineer)..."
           className="w-full rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 px-4 py-2.5 text-sm outline-none focus:border-pink-500/50 transition"
         />
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute z-50 left-0 right-0 top-full mt-1 rounded-xl border border-white/10 bg-zinc-900 shadow-xl overflow-hidden">
+            {suggestions.map((s, i) => (
+              <button
+                key={s}
+                type="button"
+                onMouseDown={e => { e.preventDefault(); selectSuggestion(s); }}
+                onMouseEnter={() => setHighlightedIdx(i)}
+                className={`w-full text-left px-4 py-2.5 text-sm transition ${
+                  highlightedIdx === i
+                    ? 'bg-pink-500/20 text-pink-200'
+                    : 'text-zinc-300 hover:bg-white/5'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Count picker + fetch button */}
-      <div className="flex items-center gap-3">
-        <div className="flex gap-1.5 shrink-0">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1.5 shrink-0 flex-wrap">
           {COUNTS.map(n => (
             <button
               key={n}
@@ -530,7 +630,7 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
                   : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-white/10'
               }`}
             >
-              {n}
+              {n === 200 ? '200 ⚡' : n}
             </button>
           ))}
         </div>
@@ -539,7 +639,7 @@ function HuggingFaceFetcher({ onLoad }: { onLoad: (resumes: string[], jd: string
           type="button"
           onClick={handleFetch}
           disabled={loading || !activeRole}
-          className="flex-1 rounded-xl bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-bold text-white hover:from-pink-400 hover:to-violet-400 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="flex-1 min-w-0 rounded-xl bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-bold text-white hover:from-pink-400 hover:to-violet-400 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {loading ? (
             <>

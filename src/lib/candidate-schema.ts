@@ -1,23 +1,26 @@
 import { z } from 'zod';
 
+const scoreField = z.coerce.number().min(0).max(100).default(0).transform(Math.round);
+
 export const CandidateProfileSchema = z.object({
   id: z.string(),
-  yearsExperience: z.number(),
-  careerLevel: z.enum(['junior', 'mid', 'senior', 'lead', 'principal']),
-  requiredSkillsFound: z.array(z.string()),
-  requiredSkillsMissing: z.array(z.string()),
-  bonusSkills: z.array(z.string()),
-  topAchievement: z.string(),
-  // Five scoring dimensions — all default to 0 so a missing field doesn't drop the candidate
-  skillsScore: z.number().min(0).max(100).default(0).transform(Math.round),
-  experienceScore: z.number().min(0).max(100).default(0).transform(Math.round),
-  scaleScore: z.number().min(0).max(100).default(0).transform(Math.round),
-  achievementScore: z.number().min(0).max(100).default(0).transform(Math.round),
-  domainScore: z.number().min(0).max(100).default(0).transform(Math.round),
-  fitScore: z.number().min(0).max(100).default(0).transform(Math.round),
+  yearsExperience: z.coerce.number().default(0),
+  careerLevel: z.enum(['junior', 'mid', 'senior', 'lead', 'principal']).catch('mid'),
+  requiredSkillsFound: z.array(z.string()).default([]),
+  requiredSkillsMissing: z.array(z.string()).default([]),
+  bonusSkills: z.array(z.string()).default([]),
+  topAchievement: z.string().default(''),
+  skillsScore: scoreField,
+  experienceScore: scoreField,
+  scaleScore: scoreField,
+  achievementScore: scoreField,
+  domainScore: scoreField,
+  fitScore: scoreField,
   scoreBreakdown: z.string().default(''),
-  advancePitch: z.string(),
-  concernFlag: z.string(),
+  decision: z.enum(['ADVANCE', 'HOLD', 'REJECT']).catch('HOLD'),
+  recruiterSummary: z.string().default(''),
+  advancePitch: z.string().default(''),
+  concernFlag: z.string().default(''),
 });
 
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;

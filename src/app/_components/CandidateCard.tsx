@@ -24,15 +24,39 @@ const LEVEL_COLORS: Record<string, string> = {
 
 const ROUND_ACCENTS = ['from-blue-500', 'from-violet-500', 'from-emerald-500'];
 
-function ScoreBar({ label, score, color, max = 100 }: { label: string; score: number; color: string; max?: number }) {
+const DECISION_STYLES = {
+  ADVANCE: {
+    bg: 'bg-emerald-50 border-emerald-200',
+    icon: '✅',
+    label: 'ADVANCE',
+    labelColor: 'text-emerald-700',
+    textColor: 'text-emerald-900',
+    dot: 'bg-emerald-500',
+  },
+  HOLD: {
+    bg: 'bg-amber-50 border-amber-200',
+    icon: '🔶',
+    label: 'HOLD — Phone Screen',
+    labelColor: 'text-amber-700',
+    textColor: 'text-amber-900',
+    dot: 'bg-amber-500',
+  },
+  REJECT: {
+    bg: 'bg-rose-50 border-rose-200',
+    icon: '❌',
+    label: 'REJECT',
+    labelColor: 'text-rose-700',
+    textColor: 'text-rose-900',
+    dot: 'bg-rose-500',
+  },
+};
+
+function ScoreBar({ label, score, color }: { label: string; score: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-[10px] font-semibold text-zinc-400 w-20 shrink-0">{label}</span>
       <div className="flex-1 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${(score / max) * 100}%`, transition: 'width 0.6s ease' }}
-        />
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%`, transition: 'width 0.6s ease' }} />
       </div>
       <span className="text-xs font-bold text-zinc-500 w-7 text-right shrink-0">{score}</span>
     </div>
@@ -59,6 +83,9 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
   const startX = useRef(0);
   const isTop = position === 0;
 
+  const decision = candidate.decision ?? (candidate.fitScore >= 75 ? 'ADVANCE' : candidate.fitScore >= 50 ? 'HOLD' : 'REJECT');
+  const ds = DECISION_STYLES[decision];
+
   const triggerSwipe = (dir: 'left' | 'right') => {
     if (flying) return;
     setFlying(dir);
@@ -72,12 +99,10 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
     startX.current = e.clientX;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
-
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current || !isTop) return;
     setDragX(e.clientX - startX.current);
   };
-
   const onPointerUp = () => {
     if (!dragging.current) return;
     dragging.current = false;
@@ -89,7 +114,6 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
   const rotation = isTop ? dragX * 0.07 : 0;
   const advOpacity = Math.min(Math.max(dragX / THRESHOLD, 0), 1);
   const rejOpacity = Math.min(Math.max(-dragX / THRESHOLD, 0), 1);
-
   const scaleArr = [1, 0.95, 0.91];
   const yArr = [0, 14, 28];
 
@@ -120,7 +144,7 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
       <div className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden select-none">
         <div className={`h-1.5 w-full bg-gradient-to-r ${ROUND_ACCENTS[round]} to-transparent`} />
 
-        {/* Stamps */}
+        {/* Drag stamps */}
         <div className="pointer-events-none absolute inset-0 flex items-start justify-end p-5" style={{ opacity: advOpacity }}>
           <div className="rotate-[-18deg] rounded-xl border-4 border-emerald-500 px-3 py-1">
             <span className="text-2xl font-black tracking-wider text-emerald-500">ADVANCE</span>
@@ -146,6 +170,23 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
               {candidate.careerLevel}
             </span>
           </div>
+
+          {/* ── DECISION BANNER — always visible, always first ── */}
+          {candidate.recruiterSummary ? (
+            <div className={`rounded-2xl border p-3.5 ${ds.bg}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`h-2 w-2 rounded-full ${ds.dot}`} />
+                <span className={`text-xs font-black uppercase tracking-wider ${ds.labelColor}`}>{ds.label}</span>
+              </div>
+              <p className={`text-sm leading-relaxed ${ds.textColor}`}>{candidate.recruiterSummary}</p>
+            </div>
+          ) : (
+            <div className={`rounded-2xl border px-4 py-2.5 flex items-center gap-2 ${ds.bg}`}>
+              <span className="text-lg">{ds.icon}</span>
+              <span className={`text-sm font-black ${ds.labelColor}`}>{ds.label}</span>
+              <span className={`text-xs ml-auto font-bold ${ds.labelColor}`}>Fit {candidate.fitScore}</span>
+            </div>
+          )}
 
           {/* Round 1: Skills */}
           {round === 0 && (
@@ -178,15 +219,15 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
                 <ScoreBar label="Scale" score={candidate.scaleScore} color="bg-purple-400" />
                 <ScoreBar label="Achievements" score={candidate.achievementScore} color="bg-fuchsia-500" />
               </div>
-              <div className="rounded-2xl bg-violet-50 px-4 py-3">
-                <p className="text-xs font-medium text-violet-900 leading-relaxed">
-                  &ldquo;{candidate.topAchievement}&rdquo;
-                </p>
-              </div>
+              {candidate.topAchievement && (
+                <div className="rounded-2xl bg-violet-50 px-4 py-3">
+                  <p className="text-xs font-medium text-violet-900 leading-relaxed">&ldquo;{candidate.topAchievement}&rdquo;</p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Round 3: All 5 dimensions */}
+          {/* Round 3: All dimensions */}
           {round === 2 && (
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
@@ -205,25 +246,13 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
             </div>
           )}
 
-          {/* Score breakdown — always visible */}
-          {candidate.scoreBreakdown && (
-            <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 mb-0.5">Why this score</p>
-              <p className="text-[11px] text-zinc-600 font-mono">{candidate.scoreBreakdown}</p>
+          {/* Concern flag — Round 3 only, where all context is visible */}
+          {round === 2 && candidate.concernFlag && (
+            <div className="flex items-start gap-2 border-t border-zinc-100 pt-2.5">
+              <span className="mt-0.5 text-amber-500 shrink-0">⚠</span>
+              <span className="text-zinc-500 leading-snug text-xs">{candidate.concernFlag}</span>
             </div>
           )}
-
-          {/* Pitch + concern */}
-          <div className="border-t border-zinc-100 pt-2.5 space-y-1.5">
-            <div className="flex items-start gap-2 text-sm">
-              <span className="mt-0.5 text-emerald-500 shrink-0">✓</span>
-              <span className="text-zinc-700 leading-snug text-xs">{candidate.advancePitch}</span>
-            </div>
-            <div className="flex items-start gap-2 text-sm">
-              <span className="mt-0.5 text-amber-500 shrink-0">⚠</span>
-              <span className="text-zinc-600 leading-snug text-xs">{candidate.concernFlag}</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>

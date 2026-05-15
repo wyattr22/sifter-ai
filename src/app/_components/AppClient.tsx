@@ -10,10 +10,14 @@ import type { RoundHistory } from './SwipeView';
 
 type View = 'setup' | 'processing' | 'swiping' | 'results';
 
-// 5 simultaneous AI calls — fast progress within Groq limits
-const CONCURRENCY = 5;
-// Only AI-analyze the top candidates by keyword match; rest are pre-filtered out
-const PRE_FILTER_TOP = 40;
+// 5 resumes per batch → 8 calls for 40 resumes, all fired simultaneously
+const BATCH_SIZE = 5;
+
+// 20% of input, min 10 (enough cards to swipe), max 40 (rate limit budget)
+// 10 → 10, 25 → 10, 50 → 10, 100 → 20, 200 → 40
+function preFilterCount(total: number): number {
+  return Math.max(10, Math.min(Math.round(total * 0.2), 40));
+}
 
 interface SetupPayload {
   jobDescription: string;
@@ -62,48 +66,75 @@ export function AppClient() {
       .map((resume, i) => ({ resume, i, score: roughScore(jobDescription, resume) }))
       .sort((a, b) => b.score - a.score);
 
-    const topN = Math.min(PRE_FILTER_TOP, resumes.length);
+    const topN = Math.min(preFilterCount(resumes.length), resumes.length);
     const topResumes = scored.slice(0, topN);
 
     setPreFiltered({ original: resumes.length, analyzed: topN });
     setTotal(topN);
 
-    // ── Step 2: AI deep analysis on top candidates only ────────────────────
+    // ── Step 2: AI deep analysis — batch 5 resumes per Groq call (8 calls vs 40) ──
     const allCandidates: CandidateProfile[] = [];
     let processedCount = 0;
 
-    const processOne = async (resume: string, index: number): Promise<CandidateProfile | null> => {
-      try {
-        const res = await fetch('/api/batch-screen', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobDescription, resumes: [resume] }),
-        });
-
-        if (!res.ok) return null;
-
-        const data = await res.json();
-        const raw = data.candidates?.[0];
-        if (!raw) return null;
-
-        return { ...raw, id: String(index + 1) } as CandidateProfile;
-      } catch {
-        return null;
-      } finally {
-        processedCount += 1;
-        setProcessed(processedCount);
-      }
+    const fetchCandidates = async (resumes: string[]): Promise<CandidateProfile[]> => {
+      const res = await fetch('/api/batch-screen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobDescription, resumes }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return (data.candidates ?? []) as CandidateProfile[];
     };
 
-    for (let i = 0; i < topResumes.length; i += CONCURRENCY) {
-      const chunk = topResumes.slice(i, i + CONCURRENCY);
-      const results = await Promise.all(chunk.map(({ resume, i: origIdx }) => processOne(resume, origIdx)));
+    const processBatch = async (
+      batch: { resume: string; i: number }[],
+    ): Promise<CandidateProfile[]> => {
+      let raws: CandidateProfile[] = [];
+
+      // Try the whole batch up to 2 times
+      for (let t = 0; t < 2 && raws.length < batch.length; t++) {
+        try {
+          if (t > 0) await new Promise(r => setTimeout(r, 1500));
+          raws = await fetchCandidates(batch.map(b => b.resume));
+        } catch { /* retry */ }
+      }
+
+      // If still short, fetch each missing resume individually
+      if (raws.length < batch.length) {
+        const missing = batch.slice(raws.length);
+        const singles = await Promise.allSettled(
+          missing.map(item =>
+            fetchCandidates([item.resume]).then(r => r[0] ?? null).catch(() => null)
+          )
+        );
+        for (const s of singles) {
+          if (s.status === 'fulfilled' && s.value) raws.push(s.value as CandidateProfile);
+        }
+      }
+
+      processedCount += batch.length;
+      setProcessed(processedCount);
+
+      return raws
+        .slice(0, batch.length)
+        .map((raw, idx) => ({ ...raw, id: String((batch[idx]?.i ?? idx) + 1) }));
+    };
+
+    // Split into batches and fire all simultaneously — provider rotation handles rate limits
+    const batches: { resume: string; i: number }[][] = [];
+    for (let i = 0; i < topResumes.length; i += BATCH_SIZE) {
+      batches.push(topResumes.slice(i, i + BATCH_SIZE));
+    }
+
+    await Promise.all(batches.map(async (batch) => {
+      const results = await processBatch(batch);
       const valid = results.filter(Boolean) as CandidateProfile[];
       if (valid.length > 0) {
         allCandidates.push(...valid);
         setCandidates(prev => [...prev, ...valid]);
       }
-    }
+    }));
 
     if (allCandidates.length === 0) {
       setProcessingError('All candidates failed to process. The AI service may be busy — try again.');
