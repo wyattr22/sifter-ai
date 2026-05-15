@@ -10,9 +10,10 @@ import { CandidateProfileSchema } from '@/lib/candidate-schema';
 // OLLAMA_MODEL (e.g. "llama3.1:8b") = fully local, zero data leaves the machine.
 function buildProviderList() {
   const list = [];
-  if (process.env.OLLAMA_MODEL) {
-    const ollama = createOpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: 'ollama' });
-    list.push(ollama(process.env.OLLAMA_MODEL));
+  if (process.env.LOCAL_AI_MODEL) {
+    const baseURL = process.env.LOCAL_AI_BASE_URL ?? 'http://localhost:11434/v1';
+    const local = createOpenAI({ baseURL, apiKey: 'local' });
+    list.push(local(process.env.LOCAL_AI_MODEL));
   }
   if (process.env.CEREBRAS_API_KEY) list.push(cerebras('llama3.1-8b'));
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) list.push(google('gemini-1.5-flash'));
