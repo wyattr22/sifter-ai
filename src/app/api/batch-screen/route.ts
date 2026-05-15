@@ -2,22 +2,47 @@ import { generateText } from 'ai';
 import { groq } from '@ai-sdk/groq';
 import { google } from '@ai-sdk/google';
 import { cerebras } from '@ai-sdk/cerebras';
-import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAI, openai } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { CandidateProfileSchema } from '@/lib/candidate-schema';
 
 // All available providers — requests are distributed randomly across them,
 // then fall through to the next on rate limit to maximize combined throughput.
-// OLLAMA_MODEL (e.g. "llama3.1:8b") = fully local, zero data leaves the machine.
 function buildProviderList() {
   const list = [];
+
+  // Fully local / self-hosted (Ollama, vLLM, LM Studio, any OpenAI-compatible endpoint)
   if (process.env.LOCAL_AI_MODEL) {
     const baseURL = process.env.LOCAL_AI_BASE_URL ?? 'http://localhost:11434/v1';
-    const local = createOpenAI({ baseURL, apiKey: 'local' });
+    const local = createOpenAI({ baseURL, apiKey: process.env.LOCAL_AI_API_KEY ?? 'local' });
     list.push(local(process.env.LOCAL_AI_MODEL));
   }
+
+  // Azure OpenAI
+  if (process.env.AZURE_OPENAI_API_KEY && process.env.AZURE_OPENAI_ENDPOINT) {
+    const azure = createOpenAI({
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o-mini'}`,
+    });
+    list.push(azure(process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o-mini'));
+  }
+
+  // Anthropic (Claude)
+  if (process.env.ANTHROPIC_API_KEY) {
+    const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    list.push(anthropic(process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001'));
+  }
+
+  // OpenAI
+  if (process.env.OPENAI_API_KEY) {
+    list.push(openai(process.env.OPENAI_MODEL ?? 'gpt-4o-mini'));
+  }
+
+  // Free / high-throughput providers
   if (process.env.CEREBRAS_API_KEY) list.push(cerebras('llama3.1-8b'));
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) list.push(google('gemini-1.5-flash'));
   if (process.env.GROQ_API_KEY) list.push(groq('llama-3.1-8b-instant'));
+
   if (list.length === 0) list.push(groq('llama-3.1-8b-instant')); // last resort
   return list;
 }

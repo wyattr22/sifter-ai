@@ -47,37 +47,35 @@ cd sifter-ai
 npm install
 ```
 
-### 2. Get an API key
+### 2. Create `.env.local` with your API key(s)
 
-Sifter uses LLMs to score resumes. Pick whichever provider you have access to — **Groq and Cerebras both have free tiers** that cover thousands of resumes per day.
-
-| Provider | Speed | Cost | Get key |
-|---|---|---|---|
-| **Groq** (recommended) | Very fast | Free tier available | [console.groq.com](https://console.groq.com) |
-| **Cerebras** | Very fast | Free tier available | [cloud.cerebras.ai](https://cloud.cerebras.ai) |
-| **Google Gemini** | Fast | Free tier available | [aistudio.google.com](https://aistudio.google.com) |
-| **Ollama (local)** | Varies | Free, fully private | [ollama.ai](https://ollama.ai) |
-
-You can set multiple keys — Sifter will distribute requests across providers and fall back automatically on rate limits.
-
-### 3. Set environment variables
-
-Create a `.env.local` file in the project root:
+Sifter supports every major provider. Set whichever keys you already have — **at least one is required**. When multiple are configured, Sifter distributes load across them and fails over automatically on rate limits.
 
 ```bash
-# Add whichever providers you have — at least one is required
+# ── Free tier providers (thousands of resumes/day at no cost) ────────────────
+GROQ_API_KEY=                        # console.groq.com
+CEREBRAS_API_KEY=                    # cloud.cerebras.ai
+GOOGLE_GENERATIVE_AI_API_KEY=        # aistudio.google.com
 
-GROQ_API_KEY=your_groq_key_here
-CEREBRAS_API_KEY=your_cerebras_key_here
-GOOGLE_GENERATIVE_AI_API_KEY=your_google_key_here
+# ── Enterprise providers ─────────────────────────────────────────────────────
+ANTHROPIC_API_KEY=                   # console.anthropic.com
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # or claude-sonnet-4-6, claude-opus-4-7
 
-# Optional: run fully locally with Ollama (zero data leaves your machine)
-# First run: ollama pull llama3.1:8b
-LOCAL_AI_MODEL=llama3.1:8b
-LOCAL_AI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=                      # platform.openai.com
+OPENAI_MODEL=gpt-4o-mini             # or gpt-4o, gpt-4-turbo, etc.
+
+# ── Azure OpenAI ─────────────────────────────────────────────────────────────
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini  # your deployment name
+
+# ── Self-hosted / on-premise (Ollama, vLLM, LM Studio, any OpenAI-compatible) 
+LOCAL_AI_MODEL=llama3.1:8b           # model name as your server expects
+LOCAL_AI_BASE_URL=http://localhost:11434/v1   # default is Ollama
+LOCAL_AI_API_KEY=                    # leave blank for Ollama; set for vLLM/LM Studio
 ```
 
-### 4. Start the dev server
+### 3. Start the dev server
 
 ```bash
 npm run dev
@@ -87,11 +85,33 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
+## Provider quick-reference
+
+| Provider | Env var(s) | Notes |
+|---|---|---|
+| **Groq** | `GROQ_API_KEY` | Free tier · very fast · recommended for getting started |
+| **Cerebras** | `CEREBRAS_API_KEY` | Free tier · very fast |
+| **Google Gemini** | `GOOGLE_GENERATIVE_AI_API_KEY` | Free tier |
+| **Anthropic (Claude)** | `ANTHROPIC_API_KEY` + optional `ANTHROPIC_MODEL` | Default: `claude-haiku-4-5-20251001` |
+| **OpenAI** | `OPENAI_API_KEY` + optional `OPENAI_MODEL` | Default: `gpt-4o-mini` |
+| **Azure OpenAI** | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` | Uses your existing Azure subscription |
+| **Ollama (local)** | `LOCAL_AI_MODEL` | Zero data leaves your machine |
+| **vLLM / LM Studio** | `LOCAL_AI_MODEL` + `LOCAL_AI_BASE_URL` + optional `LOCAL_AI_API_KEY` | Any OpenAI-compatible server |
+
+> **Multiple providers:** Set as many keys as you have. Sifter picks a random provider to start and falls through to the next on any rate limit error, maximizing throughput when screening large batches.
+
+---
+
 ## Deploying to Vercel
 
 ```bash
 npm install -g vercel
+
+# Add your key(s) — repeat for each one you want to use
 vercel env add GROQ_API_KEY production
+vercel env add ANTHROPIC_API_KEY production
+# etc.
+
 vercel --prod
 ```
 
@@ -109,9 +129,9 @@ Three ways to get resumes into Sifter:
 
 ## Privacy
 
-- Candidate names and companies are anonymized by the AI before any scoring
-- If you run with `LOCAL_AI_MODEL` (Ollama), no resume data leaves your machine
-- No data is stored — everything lives in your browser session
+- Candidate names and companies are anonymized by the AI before scoring
+- With `LOCAL_AI_MODEL` (Ollama, vLLM, etc.) no resume data ever leaves your network
+- No data is stored server-side — everything lives in the browser session
 
 ---
 
@@ -119,5 +139,5 @@ Three ways to get resumes into Sifter:
 
 - **Next.js 16** (App Router, TypeScript)
 - **Tailwind CSS v4**
-- **Vercel AI SDK v6** — multi-provider with automatic failover
+- **Vercel AI SDK v6** — unified interface across all providers, automatic failover
 - **Zod** — structured output validation
