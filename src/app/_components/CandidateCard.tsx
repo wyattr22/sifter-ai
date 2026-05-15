@@ -51,6 +51,24 @@ const DECISION_STYLES = {
   },
 };
 
+type Dim = { label: string; score: number };
+
+function getFactors(c: CandidateProfile): { strengths: Dim[]; gaps: Dim[] } {
+  const dims: Dim[] = [
+    { label: 'Skills',      score: c.skillsScore },
+    { label: 'Experience',  score: c.experienceScore },
+    { label: 'Scale',       score: c.scaleScore },
+    { label: 'Impact',      score: c.achievementScore },
+    // Floor at 15 — AI sometimes returns 0 which is outside its own defined range
+    { label: 'Domain',      score: Math.max(c.domainScore, 15) },
+  ];
+  const sorted = [...dims].sort((a, b) => b.score - a.score);
+  return {
+    strengths: sorted.slice(0, 2).filter(d => d.score >= 55),
+    gaps:      sorted.slice(-2).reverse().filter(d => d.score < 60),
+  };
+}
+
 function ScoreBar({ label, score, color }: { label: string; score: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -83,7 +101,8 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
   const startX = useRef(0);
   const isTop = position === 0;
 
-  const decision = candidate.decision ?? (candidate.fitScore >= 75 ? 'ADVANCE' : candidate.fitScore >= 50 ? 'HOLD' : 'REJECT');
+  // Always derive from fitScore — AI's decision field sometimes contradicts its own scoring
+  const decision = candidate.fitScore >= 75 ? 'ADVANCE' : candidate.fitScore >= 50 ? 'HOLD' : 'REJECT';
   const ds = DECISION_STYLES[decision];
 
   const triggerSwipe = (dir: 'left' | 'right') => {
@@ -142,11 +161,10 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      <div className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden select-none">
+      <div className={`relative w-full max-w-sm rounded-3xl overflow-hidden select-none ${isTop ? 'bg-white shadow-2xl' : 'bg-zinc-50 shadow-sm'}`}>
         <div className={`h-1 w-full bg-gradient-to-r ${ROUND_ACCENTS[round]} to-transparent`} />
 
-        {/* Background cards show no content — prevents bleed-through */}
-        {!isTop && <div className="h-72" />}
+        {!isTop && <div className="h-10" />}
 
         {/* Drag stamps */}
         <div className="pointer-events-none absolute inset-0 flex items-start justify-end p-5" style={{ opacity: advOpacity }}>
@@ -177,18 +195,52 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
           </div>
 
           {/* Decision banner */}
-          <div className={`rounded-2xl border p-3.5 ${ds.bg}`}>
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${ds.dot}`} />
-                <span className={`text-xs font-black uppercase tracking-wider ${ds.labelColor}`}>{ds.label}</span>
+          {(() => {
+            const { strengths, gaps } = getFactors(candidate);
+            return (
+              <div className={`rounded-2xl border p-3.5 space-y-2.5 ${ds.bg}`}>
+                {/* Header row */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${ds.dot}`} />
+                    <span className={`text-xs font-black uppercase tracking-wider ${ds.labelColor}`}>{ds.label}</span>
+                  </div>
+                  <span className={`text-xs font-bold tabular-nums ${ds.labelColor}`}>fit {candidate.fitScore}</span>
+                </div>
+
+                {/* Recruiter summary */}
+                {candidate.recruiterSummary && (
+                  <p className={`text-sm leading-relaxed ${ds.textColor}`}>{candidate.recruiterSummary}</p>
+                )}
+
+                {/* Key factors */}
+                {(strengths.length > 0 || gaps.length > 0) && (
+                  <div className="flex flex-wrap gap-1.5 pt-0.5 border-t border-black/5">
+                    {strengths.map(d => (
+                      <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                        ↑ {d.label} {d.score}
+                      </span>
+                    ))}
+                    {gaps.map(d => (
+                      // Amber "note" for ADVANCE (they're advancing regardless), red for HOLD/REJECT
+                      decision === 'ADVANCE'
+                        ? <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                            note: {d.label} {d.score}
+                          </span>
+                        : <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                            ↓ {d.label} {d.score}
+                          </span>
+                    ))}
+                    {candidate.requiredSkillsMissing.slice(0, 2).map(s => (
+                      <span key={s} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">
+                        missing {s}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <span className={`text-xs font-bold tabular-nums ${ds.labelColor}`}>fit {candidate.fitScore}</span>
-            </div>
-            {candidate.recruiterSummary && (
-              <p className={`text-sm leading-relaxed ${ds.textColor}`}>{candidate.recruiterSummary}</p>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Round 1: Skills */}
           {round === 0 && (
@@ -199,14 +251,14 @@ export function CandidateCard({ candidate, position, round, rank, totalCandidate
               </div>
               <ScoreBar label="Skills" score={candidate.skillsScore} color="bg-blue-500" />
               <div className="flex flex-wrap gap-1.5 pt-0.5">
-                {candidate.requiredSkillsFound.map(s => (
-                  <span key={s} className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✓ {s}</span>
+                {[...new Set(candidate.requiredSkillsFound)].map(s => (
+                  <span key={`found-${s}`} className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✓ {s}</span>
                 ))}
-                {candidate.requiredSkillsMissing.map(s => (
-                  <span key={s} className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-600">✗ {s}</span>
+                {[...new Set(candidate.requiredSkillsMissing)].map(s => (
+                  <span key={`missing-${s}`} className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-600">✗ {s}</span>
                 ))}
-                {candidate.bonusSkills.slice(0, 2).map(s => (
-                  <span key={s} className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">{s}</span>
+                {[...new Set(candidate.bonusSkills)].slice(0, 2).map(s => (
+                  <span key={`bonus-${s}`} className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">{s}</span>
                 ))}
               </div>
             </div>

@@ -70,36 +70,94 @@ const KNOWN_TECH = [
   'aws','gcp','azure','s3','ec2','lambda','bigquery','snowflake',
 ];
 
-function extractSkillsFromJD(jd: string): string[] {
-  const found = new Set<string>();
-  // ALL-CAPS acronyms: AWS, SQL, API, ML, CI/CD
-  for (const m of jd.matchAll(/\b[A-Z]{2,8}\b/g)) found.add(m[0]);
-  // PascalCase compound: PostgreSQL, TypeScript, DynamoDB, GraphQL
-  for (const m of jd.matchAll(/\b[A-Z][a-z]+[A-Z][a-zA-Z0-9]*\b/g)) found.add(m[0]);
-  // Tech with punctuation: Node.js, C++, C#, .NET
-  for (const m of jd.matchAll(/\b\w+\.js\b|\bC\+\+\b|\bC#\b|\.NET\b/gi)) found.add(m[0]);
-  // Known lowercase tech terms — capitalize for display
+const NOISE = new Set(['The','Our','Your','This','Must','Have','Will','With','For','And',
+  'But','All','Some','More','Many','Each','Also','Very','Well','Just','Over','Team',
+  'Company','Role','Work','Lead','Join','Full','Time','New','Can','May','Strong','Good',
+  'AI','UI','UX','PM','HR','ID','OK']);
+
+// Signal words that indicate a skill is required vs preferred
+const REQUIRED_SIGNALS = /\b(required|must.have|must|essential|need|necessary|expect|qualif|mandator)/i;
+const BONUS_SIGNALS    = /\b(prefer|nice.to.have|bonus|plus|ideal|great.if|advantage|optiona|desirabl)/i;
+
+function extractAndRankSkills(jd: string): { required: string[]; bonus: string[] } {
   const jdLow = jd.toLowerCase();
+  const skillMap = new Map<string, string>(); // canonical → display form
+
+  // ALL-CAPS acronyms (3+ chars to cut noise)
+  for (const m of jd.matchAll(/\b[A-Z]{3,8}\b/g)) {
+    if (!NOISE.has(m[0])) skillMap.set(m[0].toLowerCase(), m[0]);
+  }
+  // PascalCase: PostgreSQL, TypeScript, GraphQL
+  for (const m of jd.matchAll(/\b[A-Z][a-z]+[A-Z][a-zA-Z0-9]*\b/g)) {
+    if (!NOISE.has(m[0])) skillMap.set(m[0].toLowerCase(), m[0]);
+  }
+  // Node.js, C++, C#, .NET
+  for (const m of jd.matchAll(/\b\w+\.js\b|\bC\+\+\b|\bC#\b|\.NET\b/gi)) {
+    skillMap.set(m[0].toLowerCase(), m[0]);
+  }
+  // Known lowercase tech terms
   for (const t of KNOWN_TECH) {
     if (jdLow.includes(t)) {
-      const regex = new RegExp(`\\b${t}\\b`, 'i');
-      const match = jd.match(regex);
-      found.add(match ? match[0] : t.charAt(0).toUpperCase() + t.slice(1));
+      const match = jd.match(new RegExp(`\\b${t}\\b`, 'i'));
+      skillMap.set(t, match ? match[0] : t.charAt(0).toUpperCase() + t.slice(1));
     }
   }
-  const noise = new Set(['The','Our','Your','This','Must','Have','Will','With','For','And',
-    'But','All','Some','More','Many','Each','Also','Very','Well','Just','Over','Team',
-    'Company','Role','Work','Lead','Join','Full','Time','New','Can','May','Strong','Good']);
-  return [...found].filter(s => !noise.has(s) && s.length >= 2).slice(0, 20);
+
+  // Score each skill
+  const scored: { display: string; score: number; tier: 'required' | 'bonus' }[] = [];
+  for (const [canonical, display] of skillMap) {
+    if (display.length < 2) continue;
+
+    // Count occurrences
+    const freq = (jdLow.match(new RegExp(`\\b${canonical.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')) ?? []).length;
+
+    // Check first occurrence position (earlier = more important)
+    const pos = jdLow.indexOf(canonical);
+    const posScore = pos < 0 ? 0 : Math.round((1 - pos / jd.length) * 3);
+
+    // Check context window around each occurrence for signal words
+    let requiredHits = 0, bonusHits = 0;
+    for (const m of jdLow.matchAll(new RegExp(`\\b${canonical.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'))) {
+      const ctx = jd.slice(Math.max(0, m.index! - 120), m.index! + 120);
+      if (REQUIRED_SIGNALS.test(ctx)) requiredHits++;
+      if (BONUS_SIGNALS.test(ctx)) bonusHits++;
+    }
+
+    const score = freq * 2 + posScore + requiredHits * 3 - bonusHits * 2;
+    const tier = bonusHits > requiredHits ? 'bonus' : 'required';
+    scored.push({ display, score, tier });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+
+  return {
+    required: scored.filter(s => s.tier === 'required').slice(0, 12).map(s => s.display),
+    bonus:    scored.filter(s => s.tier === 'bonus').slice(0, 6).map(s => s.display),
+  };
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+interface ScoringWeights {
+  skills: number; experience: number; scale: number; impact: number; domain: number;
+}
+
+const DEFAULT_WEIGHTS: ScoringWeights = { skills: 30, experience: 20, scale: 20, impact: 20, domain: 10 };
+
+const WEIGHT_LABELS: { key: keyof ScoringWeights; label: string; color: string }[] = [
+  { key: 'skills',     label: 'Skills Match',  color: 'bg-blue-500' },
+  { key: 'experience', label: 'Experience',    color: 'bg-violet-500' },
+  { key: 'scale',      label: 'Scale',         color: 'bg-purple-400' },
+  { key: 'impact',     label: 'Impact',        color: 'bg-fuchsia-500' },
+  { key: 'domain',     label: 'Domain',        color: 'bg-emerald-500' },
+];
 
 interface SetupPayload {
   jobDescription: string;
   resumes: string[];
   requiredSkills: string[];
   bonusSkills: string[];
+  weights: ScoringWeights;
 }
 
 interface Props {
@@ -107,10 +165,10 @@ interface Props {
 }
 
 const SAMPLE_OPTIONS = [
-  { label: '10', value: 10 },
   { label: '25', value: 25 },
   { label: '50', value: 50 },
   { label: '100', value: 100 },
+  { label: '200', value: 200 },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -121,20 +179,46 @@ export function SetupForm({ onStart }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
-  const [csvInfo, setCsvInfo] = useState<{ totalRows: number; column: string; categories?: string } | null>(null);
-  const [sampleSize, setSampleSize] = useState(50);
+  const [csvInfo, setCsvInfo] = useState<{ totalRows: number; column: string } | null>(null);
+  const [csvRows, setCsvRows] = useState<{ text: string; category: string }[]>([]);
+  const [allCategories, setAllCategories] = useState<{ name: string; count: number }[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [sampleSize, setSampleSize] = useState(200);
   const [randomize, setRandomize] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
   const [bonusSkills, setBonusSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState('');
+  const [weights, setWeights] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
+  const [weightsOpen, setWeightsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
+  const adjustWeight = (key: keyof ScoringWeights, newVal: number) => {
+    setWeights(prev => {
+      const delta = newVal - prev[key];
+      const others = (Object.keys(prev) as (keyof ScoringWeights)[]).filter(k => k !== key);
+      const otherTotal = others.reduce((s, k) => s + prev[k], 0);
+      const next = { ...prev, [key]: newVal };
+      if (otherTotal > 0) {
+        others.forEach(k => {
+          next[k] = Math.max(0, Math.round(prev[k] - delta * (prev[k] / otherTotal)));
+        });
+      }
+      // Correct rounding drift so total always = 100
+      const total = (Object.values(next) as number[]).reduce((s, v) => s + v, 0);
+      if (total !== 100) {
+        const adj = others.find(k => next[k] > 0) ?? key;
+        next[adj] = Math.max(0, next[adj] + (100 - total));
+      }
+      return next;
+    });
+  };
+
   const applyExtractedSkills = useCallback((jdText: string) => {
-    const extracted = extractSkillsFromJD(jdText);
-    setRequiredSkills(extracted);
-    setBonusSkills([]);
+    const { required, bonus } = extractAndRankSkills(jdText);
+    setRequiredSkills(required);
+    setBonusSkills(bonus);
   }, []);
 
   const moveToBonus = (skill: string) => {
@@ -154,6 +238,30 @@ export function SetupForm({ onStart }: Props) {
     if (!s || requiredSkills.includes(s) || bonusSkills.includes(s)) return;
     setRequiredSkills(p => [...p, s]);
     setNewSkill('');
+  };
+
+  // Re-derive resumes whenever category filter, sample size, or randomize changes
+  useEffect(() => {
+    if (!csvRows.length) return;
+    const filtered = selectedCategories.length > 0
+      ? csvRows.filter(r => selectedCategories.includes(r.category))
+      : csvRows;
+    const texts = filtered.map(r => r.text);
+    const effectiveSize = Math.min(sampleSize, texts.length);
+    const selected = randomize ? shuffle(texts).slice(0, effectiveSize) : texts.slice(0, effectiveSize);
+    setResumes(selected.join('\n---\n'));
+  }, [csvRows, selectedCategories, sampleSize, randomize]);
+
+  const toggleCategory = (name: string) => {
+    setSelectedCategories(prev => {
+      if (prev.length === 0) return allCategories.filter(c => c.name !== name).map(c => c.name);
+      if (prev.includes(name)) {
+        const next = prev.filter(s => s !== name);
+        return next.length === 0 ? [] : next;
+      }
+      const next = [...prev, name];
+      return next.length === allCategories.length ? [] : next;
+    });
   };
 
   const resumeList = resumes.split('---').map(r => r.trim()).filter(Boolean);
@@ -214,27 +322,37 @@ export function SetupForm({ onStart }: Props) {
         const colIdx = headers.indexOf(resumeCol);
         const catIdx = headers.findIndex(h => h.toLowerCase().includes('categor'));
 
-        const rows = lines.slice(1).map(l => parseCSVLine(l));
-        const validRows = rows.filter(r => r[colIdx]?.length > 50);
+        const parsed = lines.slice(1).map(l => parseCSVLine(l));
+        const validRows = parsed.filter(r => r[colIdx]?.length > 50);
 
-        let categories: string | undefined;
+        const rows = validRows.map(r => ({
+          text: r[colIdx],
+          category: catIdx >= 0 ? (r[catIdx] ?? '') : '',
+        }));
+
+        // Build sorted category list — filter out CSV parsing artifacts
         if (catIdx >= 0) {
           const counts: Record<string, number> = {};
-          validRows.forEach(r => { const c = r[catIdx]; if (c) counts[c] = (counts[c] ?? 0) + 1; });
-          categories = Object.entries(counts)
+          rows.forEach(r => { if (r.category) counts[r.category] = (counts[r.category] ?? 0) + 1; });
+          const cleanCats = Object.entries(counts)
+            .filter(([name, count]) =>
+              count >= 3 &&               // must appear multiple times — fragments are always unique
+              name.length <= 40 &&        // job titles are short
+              /^[\x20-\x7E]+$/.test(name) // ASCII only — no â¢ bullet encoding garbage
+            )
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([k, v]) => `${k} (${v})`)
-            .join(', ');
+            .map(([name, count]) => ({ name, count }));
+          setAllCategories(cleanCats);
+          // Re-assign category to empty string for any row whose category didn't make the cut
+          const validCatNames = new Set(cleanCats.map(c => c.name));
+          rows.forEach(r => { if (!validCatNames.has(r.category)) r.category = ''; });
+        } else {
+          setAllCategories([]);
         }
 
-        setCsvInfo({ totalRows: validRows.length, column: resumeCol, categories });
-
-        const allTexts = validRows.map(r => r[colIdx]);
-        const effectiveSize = Math.min(sampleSize, allTexts.length);
-        const selected = randomize ? shuffle(allTexts).slice(0, effectiveSize) : allTexts.slice(0, effectiveSize);
-
-        setResumes(selected.join('\n---\n'));
+        setSelectedCategories([]);
+        setCsvRows(rows);
+        setCsvInfo({ totalRows: rows.length, column: resumeCol });
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to parse CSV');
       } finally {
@@ -242,20 +360,23 @@ export function SetupForm({ onStart }: Props) {
       }
     };
     reader.readAsText(file);
-  }, [sampleSize, randomize]);
+  }, []);
 
   const loadDemo = () => {
     setJd(DEMO_JD);
     setResumes(DEMO_RESUMES);
     setUploadedFiles([]);
     setCsvInfo(null);
+    setCsvRows([]);
+    setAllCategories([]);
+    setSelectedCategories([]);
     applyExtractedSkills(DEMO_JD);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!jd.trim() || resumeList.length === 0) return;
-    onStart({ jobDescription: jd, resumes: resumeList, requiredSkills, bonusSkills });
+    onStart({ jobDescription: jd, resumes: resumeList, requiredSkills, bonusSkills, weights });
   };
 
   return (
@@ -284,11 +405,14 @@ export function SetupForm({ onStart }: Props) {
           <HuggingFaceFetcher
             onLoad={(fetchedResumes, fetchedJd) => {
               setResumes(fetchedResumes.join('\n---\n'));
-              if (fetchedJd) {
+              if (fetchedJd && !jd.trim()) {
                 setJd(fetchedJd);
                 applyExtractedSkills(fetchedJd);
               }
               setCsvInfo(null);
+              setCsvRows([]);
+              setAllCategories([]);
+              setSelectedCategories([]);
               setUploadedFiles([]);
             }}
           />
@@ -302,6 +426,12 @@ export function SetupForm({ onStart }: Props) {
             <textarea
               value={jd}
               onChange={e => setJd(e.target.value)}
+              onPaste={e => {
+                const el = e.currentTarget;
+                setTimeout(() => {
+                  if (el.value.trim().length > 50) applyExtractedSkills(el.value);
+                }, 0);
+              }}
               placeholder="Auto-filled when you search a role, or paste your own..."
               className="w-full rounded-2xl bg-white/5 border border-white/10 text-white placeholder:text-zinc-600 p-4 text-sm font-mono min-h-32 resize-y outline-none focus:border-indigo-500/50 transition"
               required
@@ -442,22 +572,54 @@ export function SetupForm({ onStart }: Props) {
 
               {/* CSV info panel */}
               {csvInfo && (
-                <div className="rounded-2xl border border-violet-500/30 bg-violet-500/8 p-4">
-                  <p className="text-violet-300 text-sm font-bold">{csvInfo.totalRows.toLocaleString()} resumes detected</p>
-                  <p className="text-zinc-500 text-xs mt-0.5">Column: <code className="text-zinc-400">{csvInfo.column}</code></p>
-                  {csvInfo.categories && (
-                    <p className="text-zinc-600 text-xs mt-1">Top categories: {csvInfo.categories}</p>
+                <div className="rounded-2xl border border-violet-500/30 bg-violet-500/8 p-4 space-y-4">
+                  <div>
+                    <p className="text-violet-300 text-sm font-bold">{csvInfo.totalRows.toLocaleString()} resumes detected</p>
+                    <p className="text-zinc-500 text-xs mt-0.5">Column: <code className="text-zinc-400">{csvInfo.column}</code></p>
+                  </div>
+
+                  {/* Category filter */}
+                  {allCategories.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Filter by job category</p>
+                        {selectedCategories.length > 0 && (
+                          <button type="button" onClick={() => setSelectedCategories([])}
+                            className="text-[10px] text-violet-400 hover:text-violet-300 font-semibold transition">
+                            Show all
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allCategories.map(({ name, count }) => {
+                          const active = selectedCategories.length === 0 || selectedCategories.includes(name);
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => toggleCategory(name)}
+                              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                                active
+                                  ? 'bg-violet-500/30 border border-violet-400/50 text-violet-200'
+                                  : 'bg-white/5 border border-white/10 text-zinc-600 hover:text-zinc-400'
+                              }`}
+                            >
+                              {name} <span className="opacity-60">({count})</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                  <div className="mt-4 space-y-3">
+
+                  {/* Sample size + randomize */}
+                  <div className="space-y-3">
                     <div className="flex gap-2 flex-wrap">
                       {SAMPLE_OPTIONS.filter(o => o.value <= csvInfo.totalRows).map(o => (
                         <button
                           key={o.value}
                           type="button"
-                          onClick={() => {
-                            setSampleSize(o.value);
-                            if (csvInputRef.current?.files?.[0]) handleCSVFile(csvInputRef.current.files[0]);
-                          }}
+                          onClick={() => setSampleSize(o.value)}
                           className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
                             sampleSize === o.value
                               ? 'bg-violet-500 text-white'
@@ -469,12 +631,7 @@ export function SetupForm({ onStart }: Props) {
                       ))}
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={randomize}
-                        onChange={e => setRandomize(e.target.checked)}
-                        className="rounded"
-                      />
+                      <input type="checkbox" checked={randomize} onChange={e => setRandomize(e.target.checked)} className="rounded" />
                       <span className="text-zinc-400 text-xs">Randomize selection (recommended)</span>
                     </label>
                   </div>
@@ -517,6 +674,49 @@ export function SetupForm({ onStart }: Props) {
               </button>
             </div>
           </details>
+
+          {/* Scoring weights */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setWeightsOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+            >
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Scoring Weights</p>
+                <p className="text-zinc-600 text-[11px] mt-0.5">
+                  {WEIGHT_LABELS.map(w => `${w.label} ${weights[w.key]}%`).join(' · ')}
+                </p>
+              </div>
+              <span className="text-zinc-500 text-xs">{weightsOpen ? '▲' : '▼'}</span>
+            </button>
+            {weightsOpen && (
+              <div className="px-4 pb-4 space-y-3 border-t border-white/10 pt-3">
+                {WEIGHT_LABELS.map(({ key, label, color }) => (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="text-zinc-400 text-xs w-24 shrink-0">{label}</span>
+                    <input
+                      type="range" min={0} max={100} step={5}
+                      value={weights[key]}
+                      onChange={e => adjustWeight(key, Number(e.target.value))}
+                      className="flex-1 accent-indigo-500"
+                    />
+                    <span className="text-white text-xs font-bold tabular-nums w-8 text-right">{weights[key]}%</span>
+                    <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden shrink-0">
+                      <div className={`h-full rounded-full ${color}`} style={{ width: `${weights[key]}%` }} />
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setWeights(DEFAULT_WEIGHTS)}
+                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">{error}</div>

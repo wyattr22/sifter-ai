@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import type { CandidateProfile } from '@/lib/candidate-schema';
 import type { RoundHistory } from './SwipeView';
 import { ROUNDS } from '@/lib/candidate-schema';
 
 interface Props {
   finalists: CandidateProfile[];
+  allCandidates: CandidateProfile[];
   history: RoundHistory[];
+  notes: Record<string, string>;
   totalCandidates: number;
   onReset: () => void;
 }
@@ -19,8 +22,42 @@ const LEVEL_COLORS: Record<string, string> = {
   principal: 'bg-emerald-100 text-emerald-700',
 };
 
-export function Results({ finalists, history, totalCandidates, onReset }: Props) {
+function exportCSV(sorted: CandidateProfile[], notes: Record<string, string>) {
+  const headers = ['Rank','Candidate','Career Level','Years Exp','Fit Score','Skills','Experience','Scale','Impact','Domain','Decision','Top Achievement','Required Found','Required Missing','Bonus Skills','Recruiter Summary','Note'];
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = sorted.map((c, i) => [
+    i + 1, `Candidate #${c.id}`, c.careerLevel, c.yearsExperience,
+    c.fitScore, c.skillsScore, c.experienceScore, c.scaleScore, c.achievementScore, c.domainScore,
+    c.fitScore >= 75 ? 'ADVANCE' : c.fitScore >= 50 ? 'HOLD' : 'REJECT',
+    c.topAchievement, c.requiredSkillsFound.join('; '), c.requiredSkillsMissing.join('; '),
+    c.bonusSkills.join('; '), c.recruiterSummary, notes[c.id] ?? '',
+  ].map(esc).join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sifter-finalists-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function Results({ finalists, allCandidates, history, notes, totalCandidates, onReset }: Props) {
+  const [showRejected, setShowRejected] = useState(false);
   const sorted = [...finalists].sort((a, b) => b.fitScore - a.fitScore);
+
+  const finalistIds = new Set(finalists.map(f => f.id));
+  const rejected = allCandidates
+    .filter(c => !finalistIds.has(c.id))
+    .sort((a, b) => b.fitScore - a.fitScore);
+
+  // Find which round each candidate was eliminated in
+  const eliminatedInRound = (id: string): number => {
+    for (let i = 0; i < history.length; i++) {
+      if (history[i].decisions[id] === 'reject') return i;
+    }
+    return -1;
+  };
   const eliminated = totalCandidates - finalists.length;
   const minutesSaved = totalCandidates * 3;
   const dollarsSaved = (minutesSaved / 60) * 35;
@@ -119,19 +156,83 @@ export function Results({ finalists, history, totalCandidates, onReset }: Props)
                   <span className="text-zinc-400 text-sm">{c.yearsExperience} yrs</span>
                 </div>
                 <p className="text-zinc-300 text-sm mb-2 italic">"{c.topAchievement}"</p>
-                <div className="flex gap-3 text-xs">
+                <div className="flex gap-3 text-xs mb-2">
                   <span className="text-blue-400">Skills {c.skillsScore}</span>
                   <span className="text-violet-400">Exp {c.experienceScore}</span>
                   <span className="text-emerald-400 font-bold">Fit {c.fitScore}</span>
                 </div>
+                {notes[c.id] && (
+                  <div className="flex items-start gap-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+                    <span className="text-amber-400 text-xs mt-px shrink-0">✎</span>
+                    <p className="text-amber-200/80 text-xs leading-relaxed">{notes[c.id]}</p>
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Reset */}
-      <div className="px-6 pb-12 text-center">
+      {/* Rejected candidates */}
+      {rejected.length > 0 && (
+        <div className="mx-6 mb-6">
+          <button
+            onClick={() => setShowRejected(o => !o)}
+            className="w-full flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-5 py-3.5 text-left hover:bg-white/8 transition"
+          >
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Eliminated Candidates</p>
+              <p className="text-zinc-600 text-xs mt-0.5">{rejected.length} candidates — click to review who was cut and why</p>
+            </div>
+            <span className="text-zinc-500 text-sm">{showRejected ? '▲' : '▼'}</span>
+          </button>
+
+          {showRejected && (
+            <div className="mt-2 space-y-2">
+              {rejected.map(c => {
+                const roundIdx = eliminatedInRound(c.id);
+                const decision = c.fitScore >= 75 ? 'ADVANCE' : c.fitScore >= 50 ? 'HOLD' : 'REJECT';
+                return (
+                  <div key={c.id} className="rounded-xl bg-white/5 border border-white/8 px-4 py-3 flex items-start gap-3">
+                    <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${decision === 'HOLD' ? 'bg-amber-400' : 'bg-rose-500'}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="text-zinc-300 text-xs font-bold">Candidate #{c.id}</span>
+                        <span className="text-zinc-500 text-xs">{c.yearsExperience} yrs · {c.careerLevel}</span>
+                        <span className="text-zinc-600 text-xs">fit {c.fitScore}</span>
+                        {roundIdx >= 0 && (
+                          <span className="text-zinc-600 text-[10px] bg-white/5 rounded-full px-2 py-0.5">
+                            cut R{roundIdx + 1}: {ROUNDS[roundIdx].name}
+                          </span>
+                        )}
+                      </div>
+                      {c.recruiterSummary && (
+                        <p className="text-zinc-500 text-xs leading-relaxed">{c.recruiterSummary}</p>
+                      )}
+                      {c.requiredSkillsMissing.length > 0 && (
+                        <p className="text-rose-400/60 text-[10px] mt-0.5">
+                          Missing: {c.requiredSkillsMissing.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="px-6 pb-12 flex flex-col items-center gap-3">
+        {sorted.length > 0 && (
+          <button
+            onClick={() => exportCSV(sorted, notes)}
+            className="rounded-2xl bg-emerald-500/20 border border-emerald-500/30 px-8 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/30 hover:text-emerald-200 transition-all"
+          >
+            ↓ Export Finalists to CSV
+          </button>
+        )}
         <button
           onClick={onReset}
           className="rounded-2xl border border-white/20 bg-white/5 px-8 py-3 text-sm font-semibold text-white/70 hover:bg-white/10 hover:text-white transition-all"

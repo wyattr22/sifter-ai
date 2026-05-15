@@ -25,22 +25,36 @@ const PROVIDERS = buildProviderList();
 
 export const runtime = 'nodejs';
 
-const MAX_RESUME_CHARS = 350;
-const MAX_JD_CHARS = 200;
+const MAX_RESUME_CHARS = 1200;
+const MAX_JD_CHARS = 400;
 
-const SYSTEM_PROMPT = `Recruiter AI. Screen resumes vs job description. Anonymize: names=Candidate, companies=[Co], schools=[Univ].
+export interface ScoringWeights {
+  skills: number;      // 0–100, must sum to 100 with others
+  experience: number;
+  scale: number;
+  impact: number;
+  domain: number;
+}
 
-skillsScore: coverage=(matched_required/total_required). score=round(coverage*70). Then: +5 per bonus skill (max+15). Then: -10 per missing required skill (floor 0). A candidate matching 1 of 5 required skills scores ~4. All required matched scores 70+. Bonus skills can push to 85.
+export const DEFAULT_WEIGHTS: ScoringWeights = { skills: 30, experience: 20, scale: 20, impact: 20, domain: 10 };
+
+const SYSTEM_PROMPT_BASE = `Recruiter AI. Screen resumes vs job description. Anonymize: names=Candidate, companies=[Co], schools=[Univ].
+
+skillsScore: coverage=(matched_required/total_required). score=round(coverage*70)+bonus. Bonus: +5 per bonus skill found, max+15. Floor 0, ceiling 85. Examples: 0/5 required=0, 1/5=14, 3/5=42, 5/5=70, 5/5+3bonus=85. Scales correctly for any number of required skills.
 experienceScore: exact=90, 1yr_short=65, 2yr_short=40, 3+yr_short=20, overqualified=60.
 scaleScore: solo=15, startup=35, mid=55, large=75, FAANG=95.
 achievementScore: none=15, vague=40, metrics=70, exceptional=95.
 domainScore: exact=100, adjacent=75, different=45, unrelated=15.
-fitScore=round(skills*.3+exp*.2+scale*.2+achieve*.2+domain*.1).
 decision: ADVANCE=75+ HOLD=50-74 REJECT=<50.
 
-recruiterSummary: 1 sentence, max 12 words. Lead with years and top skill. Proper capitalization. No apostrophes. Example: "6 years Python and Django, strong AWS, missing PostgreSQL."
+recruiterSummary: 1 sentence, max 15 words. State years, top matched skill, and the PRIMARY reason for the decision. If missing required skills, name them. Proper capitalization. No apostrophes. Examples: "6 years Python and Django, strong AWS, missing PostgreSQL and Redis." / "4 years React and TypeScript, no backend experience required." / "8 years Java but domain is finance not healthcare."
 
-Return ONLY a raw JSON array, no markdown. Schema: {"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["3 max"],"requiredSkillsMissing":["3 max"],"bonusSkills":["2 max"],"topAchievement":"6 words max","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"decision":"ADVANCE|HOLD|REJECT","recruiterSummary":"12 words, proper caps","concernFlag":"5 words max"}`;
+Return ONLY a raw JSON array, no markdown. Schema: {"yearsExperience":N,"careerLevel":"junior|mid|senior|lead|principal","requiredSkillsFound":["5 max"],"requiredSkillsMissing":["5 max"],"bonusSkills":["3 max"],"topAchievement":"6 words max","skillsScore":N,"experienceScore":N,"scaleScore":N,"achievementScore":N,"domainScore":N,"fitScore":N,"decision":"ADVANCE|HOLD|REJECT","recruiterSummary":"12 words, proper caps","concernFlag":"5 words max"}`;
+
+function buildSystemPrompt(w: ScoringWeights): string {
+  const s = w.skills / 100, e = w.experience / 100, sc = w.scale / 100, a = w.impact / 100, d = w.domain / 100;
+  return `${SYSTEM_PROMPT_BASE}\nfitScore=round(skills*${s}+exp*${e}+scale*${sc}+achieve*${a}+domain*${d}).`;
+}
 
 function buildPrompt(jobDescription: string, resumes: string[], requiredSkills?: string[], bonusSkills?: string[]): string {
   const jd = jobDescription.slice(0, MAX_JD_CHARS);
@@ -93,14 +107,15 @@ async function callWithProviders(
   attempt = 0,
   requiredSkills?: string[],
   bonusSkills?: string[],
+  weights?: ScoringWeights,
 ): Promise<unknown[]> {
   const model = PROVIDERS[providerIdx % PROVIDERS.length];
   try {
     const { text } = await generateText({
       model,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(weights ?? DEFAULT_WEIGHTS),
       prompt: buildPrompt(jobDescription, resumes, requiredSkills, bonusSkills),
-      maxOutputTokens: Math.min(180 * resumes.length + 100, 1200),
+      maxOutputTokens: Math.min(200 * resumes.length + 100, 1200),
     });
     const arr = extractJsonArray(text);
     if (arr.length > 0) return arr;
@@ -111,13 +126,11 @@ async function callWithProviders(
     if (isRateLimit) {
       const nextIdx = providerIdx + 1;
       if (nextIdx < PROVIDERS.length) {
-        // Try next provider immediately before waiting
-        return callWithProviders(jobDescription, resumes, nextIdx, 0, requiredSkills, bonusSkills);
+        return callWithProviders(jobDescription, resumes, nextIdx, 0, requiredSkills, bonusSkills, weights);
       }
-      // All providers hit — wait then cycle back from beginning
       if (attempt < 3) {
         await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-        return callWithProviders(jobDescription, resumes, 0, attempt + 1, requiredSkills, bonusSkills);
+        return callWithProviders(jobDescription, resumes, 0, attempt + 1, requiredSkills, bonusSkills, weights);
       }
     }
     throw err;
@@ -126,20 +139,20 @@ async function callWithProviders(
 
 export async function POST(request: Request) {
   try {
-    const { jobDescription, resumes, requiredSkills, bonusSkills } = await request.json() as {
+    const { jobDescription, resumes, requiredSkills, bonusSkills, weights } = await request.json() as {
       jobDescription: string;
       resumes: string[];
       requiredSkills?: string[];
       bonusSkills?: string[];
+      weights?: ScoringWeights;
     };
 
     if (!jobDescription?.trim() || !resumes?.length) {
       return Response.json({ error: 'Job description and at least one resume are required.' }, { status: 400 });
     }
 
-    // Start from a random provider so concurrent requests spread across all keys
     const startIdx = Math.floor(Math.random() * PROVIDERS.length);
-    const rawArray = await callWithProviders(jobDescription, resumes, startIdx, 0, requiredSkills, bonusSkills);
+    const rawArray = await callWithProviders(jobDescription, resumes, startIdx, 0, requiredSkills, bonusSkills, weights);
 
     const candidates = rawArray
       .slice(0, resumes.length)

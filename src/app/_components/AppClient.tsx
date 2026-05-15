@@ -1,6 +1,18 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+
+const SESSION_KEY = 'sifter_session';
+
+function saveSession(data: object) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch { /* quota */ }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+}
+function loadSession() {
+  try { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
+}
 import type { CandidateProfile } from '@/lib/candidate-schema';
 import { SetupForm } from './SetupForm';
 import { SwipeView } from './SwipeView';
@@ -19,11 +31,16 @@ function preFilterCount(total: number): number {
   return Math.max(10, Math.min(Math.round(total * 0.2), 40));
 }
 
+interface ScoringWeights {
+  skills: number; experience: number; scale: number; impact: number; domain: number;
+}
+
 interface SetupPayload {
   jobDescription: string;
   resumes: string[];
   requiredSkills: string[];
   bonusSkills: string[];
+  weights: ScoringWeights;
 }
 
 // Common and JD-boilerplate words that appear in almost every resume — not useful signals
@@ -78,8 +95,30 @@ export function AppClient() {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [finalists, setFinalists] = useState<CandidateProfile[]>([]);
   const [history, setHistory] = useState<RoundHistory[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const runBatchProcessing = useCallback(async ({ jobDescription, resumes, requiredSkills, bonusSkills }: SetupPayload) => {
+  // Restore session on first load
+  useEffect(() => {
+    const s = loadSession();
+    if (!s) return;
+    if (s.view === 'swiping' || s.view === 'results') {
+      if (s.candidates?.length) setCandidates(s.candidates);
+      if (s.finalists?.length) setFinalists(s.finalists);
+      if (s.history?.length) setHistory(s.history);
+      if (s.notes) setNotes(s.notes);
+      if (s.preFiltered) setPreFiltered(s.preFiltered);
+      setTotal(s.total ?? 0);
+      setView(s.view);
+    }
+  }, []);
+
+  // Persist on every relevant state change (not during processing — too noisy)
+  useEffect(() => {
+    if (view === 'setup' || view === 'processing') return;
+    saveSession({ view, candidates, finalists, history, notes, preFiltered, total });
+  }, [view, candidates, finalists, history, notes, preFiltered, total]);
+
+  const runBatchProcessing = useCallback(async ({ jobDescription, resumes, requiredSkills, bonusSkills, weights }: SetupPayload) => {
     setView('processing');
     setProcessed(0);
     setCandidates([]);
@@ -106,7 +145,7 @@ export function AppClient() {
       const res = await fetch('/api/batch-screen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobDescription, resumes, requiredSkills, bonusSkills }),
+        body: JSON.stringify({ jobDescription, resumes, requiredSkills, bonusSkills, weights }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -172,16 +211,19 @@ export function AppClient() {
     setView('swiping');
   }, []);
 
-  const handleComplete = (f: CandidateProfile[], h: RoundHistory[]) => {
+  const handleComplete = (f: CandidateProfile[], h: RoundHistory[], n: Record<string, string>) => {
     setFinalists(f);
     setHistory(h);
+    setNotes(n);
     setView('results');
   };
 
   const handleReset = () => {
+    clearSession();
     setCandidates([]);
     setFinalists([]);
     setHistory([]);
+    setNotes({});
     setProcessed(0);
     setTotal(0);
     setPreFiltered(null);
@@ -209,7 +251,9 @@ export function AppClient() {
   return (
     <Results
       finalists={finalists}
+      allCandidates={candidates}
       history={history}
+      notes={notes}
       totalCandidates={candidates.length}
       onReset={handleReset}
     />

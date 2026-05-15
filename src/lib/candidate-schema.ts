@@ -26,7 +26,16 @@ export const CandidateProfileSchema = z.object({
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
 
 export const ROUNDS = [
-  { name: 'Technical', label: 'Round 1', focus: 'Skills & technical match', color: 'blue' as const },
-  { name: 'Experience', label: 'Round 2', focus: 'Seniority, scale & impact', color: 'violet' as const },
-  { name: 'Overall Fit', label: 'Round 3', focus: 'Would you interview them?', color: 'emerald' as const },
+  {
+    name: 'Technical', label: 'Round 1', focus: 'Skills & technical match', color: 'blue' as const,
+    explain: 'Do they have the required skills? Cut anyone clearly missing core qualifications.',
+  },
+  {
+    name: 'Experience', label: 'Round 2', focus: 'Seniority, scale & impact', color: 'violet' as const,
+    explain: 'Skills matched — now check depth. Have they worked at meaningful scale and driven measurable results?',
+  },
+  {
+    name: 'Overall Fit', label: 'Round 3', focus: 'Would you interview them?', color: 'emerald' as const,
+    explain: 'Full picture visible. All five dimensions shown. Final call: advance to interview or pass?',
+  },
 ] as const;
