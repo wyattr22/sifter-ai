@@ -369,6 +369,60 @@ export function SetupForm({ onStart }: Props) {
         </p>
       </div>
 
+      {/* How scoring works */}
+      <div className="px-6 pb-8 max-w-2xl mx-auto w-full">
+        <div className="rounded-2xl border border-white/8 bg-white/3 p-5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4">How Sifter Scores Candidates</p>
+
+          {/* 5 categories */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+            {[
+              { icon: '🔧', label: 'Skills Match', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20', desc: 'How many required skills appear in the resume. Missing a key skill drops this fast.' },
+              { icon: '📅', label: 'Experience', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20', desc: 'Years of experience vs. what the role asks for. Under or over both score lower.' },
+              { icon: '📈', label: 'Scale', color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20', desc: 'Size of the systems and companies they\'ve worked on — solo to FAANG.' },
+              { icon: '⚡', label: 'Impact', color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10 border-fuchsia-500/20', desc: 'Quality of achievements. Metrics and numbers score high, vague claims score low.' },
+              { icon: '🎯', label: 'Domain', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', desc: 'How relevant their industry background is. Exact match = 100, unrelated = 15.' },
+            ].map(({ icon, label, color, bg, desc }) => (
+              <div key={label} className={`rounded-xl border ${bg} p-3 flex items-start gap-2.5`}>
+                <span className="text-base shrink-0 mt-0.5">{icon}</span>
+                <div>
+                  <p className={`text-xs font-bold ${color}`}>{label}</p>
+                  <p className="text-zinc-500 text-[11px] leading-relaxed mt-0.5">{desc}</p>
+                </div>
+              </div>
+            ))}
+
+            {/* Fit score formula card */}
+            <div className="rounded-xl border border-white/8 bg-white/4 p-3 flex items-center gap-2.5">
+              <span className="text-base shrink-0">⚖️</span>
+              <div>
+                <p className="text-xs font-bold text-zinc-300">Fit Score</p>
+                <p className="text-zinc-500 text-[11px] leading-relaxed mt-0.5">Weighted average of all 5 categories. Adjust the weights in setup to match what matters for your role.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Decision tiers */}
+          <div className="flex gap-2">
+            <div className="flex-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-center">
+              <p className="text-emerald-400 text-xs font-black">ADVANCE</p>
+              <p className="text-emerald-600 text-[10px] mt-0.5">Score ≥ 75</p>
+              <p className="text-zinc-500 text-[10px]">Schedule interview</p>
+            </div>
+            <div className="flex-1 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-center">
+              <p className="text-amber-400 text-xs font-black">HOLD</p>
+              <p className="text-amber-600 text-[10px] mt-0.5">Score 50–74</p>
+              <p className="text-zinc-500 text-[10px]">Phone screen first</p>
+            </div>
+            <div className="flex-1 rounded-xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-center">
+              <p className="text-rose-400 text-xs font-black">REJECT</p>
+              <p className="text-rose-600 text-[10px] mt-0.5">Score &lt; 50</p>
+              <p className="text-zinc-500 text-[10px]">Missing requirements</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="flex-1 px-6 pb-12 max-w-2xl mx-auto w-full">
         <form onSubmit={handleSubmit} className="space-y-5">
 
